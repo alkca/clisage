@@ -108,6 +108,26 @@ fn login() -> Result<SecretString> {
     if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
         return Err("login requires an interactive terminal; use CLISAGE_API_KEY through your automation secret manager".into());
     }
+    let store = std::env::var_os("PASSWORD_STORE_DIR")
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".password-store"))
+        })
+        .ok_or("set HOME or PASSWORD_STORE_DIR to locate the pass store")?;
+    let recipient_override =
+        std::env::var_os("PASSWORD_STORE_KEY").is_some_and(|key| !key.is_empty());
+    clisage::check_pass_store(&store, recipient_override)?;
+    let available = Command::new("pass")
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|_| "pass unavailable; install pass/GPG before running clisage auth login")?;
+    if !available.success() {
+        return Err("pass could not start; check your pass/GPG installation".into());
+    }
     eprintln!("Store an OpenAI API key in pass/GPG (requires an initialized store).");
     let key = validate_key(
         rpassword::prompt_password("OpenAI API key: ")

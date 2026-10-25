@@ -1,10 +1,46 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::io::{self, BufRead, Write};
+use std::{
+    io::{self, BufRead, Write},
+    path::Path,
+};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub const CREDENTIAL_ID: &str = "clisage/openai/api.openai.com/default";
 pub const ENDPOINT: &str = "https://api.openai.com/v1/chat/completions";
+
+/// Check pass recipient metadata without reading credentials or changing the store.
+pub fn check_pass_store(root: &Path, recipient_override: bool) -> Result<()> {
+    if recipient_override {
+        return Ok(());
+    }
+    let entry = root.join(CREDENTIAL_ID);
+    let directories = entry
+        .parent()
+        .expect("credential has a namespace")
+        .ancestors()
+        .take(CREDENTIAL_ID.split('/').count());
+    for directory in directories {
+        match std::fs::read_to_string(directory.join(".gpg-id")) {
+            Ok(recipients) => {
+                if recipients.lines().any(|line| {
+                    let line = line.trim();
+                    !line.is_empty() && !line.starts_with('#')
+                }) {
+                    return Ok(());
+                }
+                break;
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(_) => {
+                return Err(
+                    "unable to read pass recipient configuration; check store permissions".into(),
+                );
+            }
+        }
+    }
+    Err("pass is not initialized for Clisage; run `pass init -p clisage YOUR_GPG_KEY_ID` with an encryption-capable GPG key, then retry `clisage auth login`".into())
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

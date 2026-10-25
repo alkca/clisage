@@ -19,7 +19,7 @@ The `remote set-head` step keeps this tap on the development branch during
 Homebrew's automatic updates. Homebrew installs the Rust build toolchain and `pass`/GPG dependencies, then
 compiles Clisage. The first install can take several minutes. There are no
 prebuilt bottles yet. Homebrew does not create a GPG key or initialize your
-password store: if needed, run `pass init YOUR_GPG_KEY_ID` with an existing key,
+password store: if needed, run `pass init -p clisage YOUR_GPG_KEY_ID` with an existing encryption-capable key,
 then `clisage auth login`.
 
 To update this development installation later:
@@ -32,7 +32,7 @@ brew upgrade --fetch-HEAD alkca/clisage/clisage
 
 For a Cargo installation, use a current stable Rust toolchain. Persistent credentials additionally
 require [`pass`](https://www.passwordstore.org/), GPG, an initialized password
-store (`pass init YOUR_GPG_KEY_ID`), and working pinentry.
+store (`pass init -p clisage YOUR_GPG_KEY_ID`), and working pinentry.
 
 ```sh
 cargo install --path . --locked
@@ -48,7 +48,10 @@ clisage auth logout
 
 Login reads a hidden API key from the terminal, stores it at
 `clisage/openai/api.openai.com/default` in `pass`, then reads it back to verify
-storage. Clisage never initializes your GPG store automatically. Noninteractive
+storage. Login checks recipient configuration before requesting an API key.
+Both a root `.gpg-id` and Clisage-scoped recipient configuration are supported;
+`PASSWORD_STORE_DIR` and `PASSWORD_STORE_KEY` follow `pass` conventions.
+Clisage never initializes your GPG store automatically. Noninteractive
 login fails without reading a key from stdin. Interactive first use offers the
 same login when there is no entry. A locked, missing or unavailable store
 produces actionable guidance and never falls back to a plaintext file.

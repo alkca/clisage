@@ -17,7 +17,9 @@ class Clisage < Formula
 
   def caveats
     <<~EOS
-      Set up your existing GPG key with `pass init YOUR_GPG_KEY_ID`, then run:
+      Initialize Clisage with your existing encryption-capable GPG key:
+        pass init -p clisage YOUR_GPG_KEY_ID
+      Then run:
         clisage auth login
 
       To enable Alt-G in Zsh, add to ~/.zshrc:
