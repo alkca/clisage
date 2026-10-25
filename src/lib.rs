@@ -181,10 +181,15 @@ pub fn request(
     messages: Vec<Value>,
     output: &mut dyn Write,
 ) -> Result<()> {
+    let mut body = json!({"model":config.model,"messages":messages,"stream":true,"store":false});
+    if config.model == "gpt-6-luna" {
+        // Keep the CLI's non-reasoning behavior when upgrading the default model.
+        body["reasoning_effort"] = json!("none");
+    }
     let response = client
         .post(endpoint)
         .bearer_auth(key)
-        .json(&json!({"model":config.model,"messages":messages,"stream":true,"store":false}))
+        .json(&body)
         .send()
         .map_err(|_| "provider connection failed or timed out; check network and retry")?;
     match response.status().as_u16() {

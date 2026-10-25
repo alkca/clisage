@@ -118,6 +118,8 @@ stored keys to `api.openai.com`. Unknown config fields are rejected, including
 API keys and endpoint overrides. The [Chat Completions API](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
 streams responses. The [default model](https://developers.openai.com/api/docs/models/gpt-6-luna)
 is configurable; availability depends on your account.
+GPT-6 Luna uses reasoning effort `none` for quick shell responses. Other model
+overrides use their provider defaults.
 
 Your explicit prompt and any piped stdin are sent to OpenAI with `store: false`.
 Provider retention policies still apply. Clisage has no telemetry, saved chats,

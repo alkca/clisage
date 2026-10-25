@@ -70,12 +70,36 @@ fn transport_sends_bearer_scope_privacy_setting_and_pipeline_content() {
     assert_eq!(body["store"], false);
     assert_eq!(body["stream"], true);
     assert_eq!(body["model"], "gpt-6-luna");
+    assert_eq!(body["reasoning_effort"], "none");
     assert!(
         body["messages"][1]["content"]
             .as_str()
             .unwrap()
             .contains("diff data")
     );
+}
+
+#[test]
+fn model_override_does_not_inherit_luna_specific_parameters() {
+    let (url, handle) = server("200 OK", "data: [DONE]\n\n");
+    let config = Config {
+        model: "test-custom-model".into(),
+        ..Config::default()
+    };
+    request(
+        &reqwest::blocking::Client::new(),
+        &url,
+        "fake-test-key",
+        &config,
+        vec![],
+        &mut Vec::new(),
+    )
+    .unwrap();
+    let captured = handle.join().unwrap();
+    let body: serde_json::Value =
+        serde_json::from_str(captured.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(body["model"], "test-custom-model");
+    assert!(body.get("reasoning_effort").is_none());
 }
 
 #[test]
