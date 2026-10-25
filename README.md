@@ -1,11 +1,34 @@
 # Clisage
 
-A small Rust shell AI assistant for macOS and Linux. Early development: source
-installation only; **no Homebrew formula or release is available yet**.
+A small Rust shell AI assistant for macOS and Linux. Early development: install
+from source with Homebrew or Cargo. No tagged release or prebuilt package yet.
+
+## Install with Homebrew
+
+The repository doubles as a Homebrew tap. Until the implementation is merged,
+select its development branch in the tap checkout:
+
+```sh
+brew tap alkca/clisage https://github.com/alkca/clisage
+git -C "$(brew --repository alkca/clisage)" switch feat/secure-cli-foundation
+brew install --HEAD alkca/clisage/clisage
+```
+
+Homebrew installs the Rust build toolchain and `pass`/GPG dependencies, then
+compiles Clisage. The first install can take several minutes. There are no
+prebuilt bottles yet. Homebrew does not create a GPG key or initialize your
+password store: if needed, run `pass init YOUR_GPG_KEY_ID` with an existing key,
+then `clisage auth login`.
+
+To update this development installation later:
+
+```sh
+brew upgrade --fetch-HEAD alkca/clisage/clisage
+```
 
 ## Try it
 
-Requires a current stable Rust toolchain. Persistent credentials additionally
+For a Cargo installation, use a current stable Rust toolchain. Persistent credentials additionally
 require [`pass`](https://www.passwordstore.org/), GPG, an initialized password
 store (`pass init YOUR_GPG_KEY_ID`), and working pinentry.
 
@@ -110,7 +133,7 @@ cargo clippy --all-targets --locked -- -D warnings
 
 Tests use fake credentials and local mock HTTP, without real API keys or paid
 requests. CI runs on Linux and macOS. Native Apple Keychain / Linux Secret Service,
-profiles, completions, signed release artifacts, and Homebrew installation are
+profiles, completions, signed release artifacts, and prebuilt Homebrew bottles are
 follow-up work. No release or merge is performed by the bootstrap work.
 
 License: MIT OR Apache-2.0.

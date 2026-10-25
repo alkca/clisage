@@ -1,0 +1,28 @@
+name: Homebrew
+on:
+  push:
+    paths: ["Formula/**", ".github/workflows/homebrew.yml"]
+  pull_request:
+    paths: ["Formula/**", ".github/workflows/homebrew.yml"]
+permissions:
+  contents: read
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04
+        with:
+          stable: true
+      - name: Register the checked-out formula as a test tap
+        run: brew tap clisage/ci "$GITHUB_WORKSPACE"
+      - name: Build and install the development version
+        run: brew install --HEAD --yes clisage/ci/clisage
+      - name: Run credential-free package tests
+        run: brew test --HEAD clisage/ci/clisage
+      - name: Check formula style
+        run: brew style "$(brew --repository clisage/ci)/Formula/clisage.rb"
