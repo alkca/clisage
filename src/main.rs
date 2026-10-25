@@ -21,18 +21,31 @@ struct Cli {
     /// Override the configured OpenAI model.
     #[arg(long, global = true)]
     model: Option<String>,
+    /// Compose the prompt in $EDITOR (falls back to $VISUAL, then vi).
+    #[arg(long, global = true)]
+    editor: bool,
+    /// Render Markdown and syntax-highlight fenced code, even when redirected.
+    #[arg(long, global = true, conflicts_with = "no_markdown")]
+    markdown: bool,
+    /// Stream the original response without terminal formatting.
+    #[arg(long, global = true)]
+    no_markdown: bool,
 }
 #[derive(Subcommand)]
 enum Action {
     /// Suggest a shell command without executing it.
     Shell {
-        prompt: String,
+        #[arg(required_unless_present = "editor")]
+        prompt: Option<String>,
         /// Return one plain command after completion, for shell integration.
         #[arg(long)]
         command_only: bool,
     },
     /// Explain a shell command without executing it.
-    Explain { prompt: String },
+    Explain {
+        #[arg(required_unless_present = "editor")]
+        prompt: Option<String>,
+    },
     /// Manage encrypted credentials.
     Auth {
         #[command(subcommand)]
@@ -171,6 +184,14 @@ fn login() -> Result<SecretString> {
 }
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    if cli.editor
+        && matches!(
+            cli.command,
+            Some(Action::Auth { .. } | Action::Config { .. } | Action::Integration { .. })
+        )
+    {
+        return Err("--editor is only available for prompts, shell, and explain".into());
+    }
     if let Some(Action::Integration { shell }) = &cli.command {
         print!(
             "{}",
@@ -188,7 +209,7 @@ fn run() -> Result<()> {
     if config.model.trim().is_empty() {
         return Err("model must not be empty".into());
     }
-    let (mode, prompt, command_only) = match cli.command {
+    let (mode, mut prompt, command_only) = match cli.command {
         Some(Action::Config { .. }) => {
             print!("{}", toml::to_string_pretty(&config)?);
             return Ok(());
@@ -235,15 +256,27 @@ fn run() -> Result<()> {
             } else {
                 Mode::Shell
             },
-            prompt,
+            prompt.unwrap_or_default(),
             command_only,
         ),
-        Some(Action::Explain { prompt }) => (Mode::Explain, prompt, false),
+        Some(Action::Explain { prompt }) => (Mode::Explain, prompt.unwrap_or_default(), false),
         Some(Action::Integration { .. }) => {
             unreachable!("integration handled before configuration")
         }
         None => (Mode::Prompt, cli.prompt.unwrap_or_default(), false),
     };
+    if cli.editor {
+        if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
+            return Err(
+                "--editor requires a terminal and cannot be combined with piped input".into(),
+            );
+        }
+        let editor = clisage::resolve_editor(
+            std::env::var("EDITOR").ok().as_deref(),
+            std::env::var("VISUAL").ok().as_deref(),
+        );
+        prompt = clisage::edit_prompt(&editor, &prompt)?;
+    }
     let mut input = String::new();
     if !io::stdin().is_terminal() {
         io::stdin()
@@ -272,11 +305,19 @@ fn run() -> Result<()> {
         .timeout(Duration::from_secs(120))
         .build()
         .map_err(|_| "unable to initialize HTTPS client")?;
+    let render = clisage::should_render_markdown(
+        io::stdout().is_terminal(),
+        cli.markdown,
+        cli.no_markdown,
+        std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()),
+        std::env::var("TERM").is_ok_and(|v| v == "dumb"),
+        command_only,
+    );
     let mut output = io::stdout().lock();
     // Shell widgets must receive either a complete validated command or nothing.
-    let mut command_buffer = Vec::new();
-    let response_output: &mut dyn Write = if command_only {
-        &mut command_buffer
+    let mut response_buffer = Vec::new();
+    let response_output: &mut dyn Write = if command_only || render {
+        &mut response_buffer
     } else {
         &mut output
     };
@@ -289,8 +330,16 @@ fn run() -> Result<()> {
         response_output,
     )?;
     if command_only {
-        let text = std::str::from_utf8(&command_buffer).map_err(|_| "invalid command encoding")?;
+        let text = std::str::from_utf8(&response_buffer).map_err(|_| "invalid command encoding")?;
         output.write_all(clisage::command_suggestion(text)?.as_bytes())?;
+    } else if render {
+        let text =
+            std::str::from_utf8(&response_buffer).map_err(|_| "invalid response encoding")?;
+        output.write_all(
+            clisage::render_markdown(text)
+                .trim_end_matches('\n')
+                .as_bytes(),
+        )?;
     }
     writeln!(output)?;
     Ok(())

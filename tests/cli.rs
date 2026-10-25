@@ -22,6 +22,37 @@ fn help_and_version_work_without_credentials() {
 }
 
 #[test]
+fn editor_rejects_piped_input_before_authentication() {
+    for args in [
+        vec!["--editor", "hello"],
+        vec!["shell", "--editor"],
+        vec!["explain", "--editor"],
+    ] {
+        let (mut cmd, _dir) = cli();
+        let out = cmd.args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&out.stderr).contains("--editor requires a terminal"));
+        assert!(out.stdout.is_empty());
+    }
+}
+
+#[test]
+fn presentation_flags_are_available_and_mutually_exclusive() {
+    let (mut cmd, _dir) = cli();
+    let out = cmd.args(["--help"]).output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("--markdown"));
+    assert!(text.contains("--no-markdown"));
+    assert!(text.contains("--editor"));
+    let (mut cmd, _dir) = cli();
+    let out = cmd
+        .args(["--markdown", "--no-markdown", "hello"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+}
+
+#[test]
 fn missing_noninteractive_credential_fails_with_guidance() {
     let (mut cmd, _dir) = cli();
     let out = cmd.arg("hello").output().unwrap();

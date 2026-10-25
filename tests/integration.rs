@@ -67,6 +67,7 @@ fn widget(shell: &str, original: &str, suggestion: &str, status: &str) -> (Strin
     let executable = dir.path().join("clisage");
     std::fs::write(&executable, r#"#!/bin/sh
 [ "$1" = shell ] && [ "$2" = --command-only ] && [ "$3" = -- ] && [ "$4" = "$CLISAGE_TEST_PROMPT" ] && [ "$#" = 4 ] || exit 90
+[ "$CLISAGE_SHELL" = "$CLISAGE_TEST_SHELL" ] || exit 93
 # The widget must never feed terminal input to the CLI.
 if IFS= read -r ignored; then exit 91; fi
 printf '%s' "$CLISAGE_TEST_OUTPUT"
@@ -109,6 +110,7 @@ exit "$CLISAGE_TEST_STATUS"
     let mut child = cmd
         .env("PATH", dir.path())
         .env("CLISAGE_TEST_SCRIPT", script)
+        .env("CLISAGE_TEST_SHELL", shell)
         .env("CLISAGE_TEST_PROMPT", original)
         .env("CLISAGE_TEST_OUTPUT", suggestion)
         .env("CLISAGE_TEST_STATUS", status)
@@ -240,25 +242,38 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
         time::{Duration, Instant},
     };
 
-    struct KillOnDrop(Box<dyn portable_pty::Child + Send + Sync>);
+    struct KillOnDrop {
+        child: Box<dyn portable_pty::Child + Send + Sync>,
+        writer: Option<Box<dyn Write + Send>>,
+    }
     impl Drop for KillOnDrop {
         fn drop(&mut self) {
-            let _ = self.0.kill();
-            let _ = self.0.wait();
+            // portable-pty's writer sends a newline/EOF on drop. Terminate
+            // the shell first so teardown cannot submit the pending command
+            // or block while the shell is still editing its input buffer.
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            self.writer.take();
         }
     }
-    fn read_until(rx: &mpsc::Receiver<Vec<u8>>, needle: &str) {
+    fn read_until(rx: &mpsc::Receiver<Vec<u8>>, pending: &mut Vec<u8>, needle: &str) {
         let deadline = Instant::now() + Duration::from_secs(10);
-        let mut data = Vec::new();
-        while !String::from_utf8_lossy(&data).contains(needle) {
+        loop {
+            if let Some(index) = pending
+                .windows(needle.len())
+                .position(|bytes| bytes == needle.as_bytes())
+            {
+                pending.drain(..index + needle.len());
+                return;
+            }
             let remaining = deadline.saturating_duration_since(Instant::now());
             let chunk = rx.recv_timeout(remaining).unwrap_or_else(|_| {
                 panic!(
                     "terminal did not display {needle:?}: {}",
-                    String::from_utf8_lossy(&data)
+                    String::from_utf8_lossy(pending)
                 );
             });
-            data.extend_from_slice(&chunk);
+            pending.extend_from_slice(&chunk);
         }
     }
     for shell in ["zsh", "bash"] {
@@ -315,10 +330,14 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
             cmd.env("PATH", dir.path());
             cmd.env("CLISAGE_TEST_SCRIPT", script);
             cmd.env("CLISAGE_TEST_MARKER", &marker);
-            let _child = KillOnDrop(pair.slave.spawn_command(cmd).unwrap());
+            let mut child = KillOnDrop {
+                child: pair.slave.spawn_command(cmd).unwrap(),
+                writer: None,
+            };
             drop(pair.slave);
             let mut reader = pair.master.try_clone_reader().unwrap();
-            let mut writer = pair.master.take_writer().unwrap();
+            child.writer = Some(pair.master.take_writer().unwrap());
+            let writer = child.writer.as_mut().unwrap();
             let (tx, rx) = mpsc::channel();
             std::thread::spawn(move || {
                 let mut buffer = [0; 4096];
@@ -333,7 +352,8 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
                     }
                 }
             });
-            read_until(&rx, "CLISAGE-TEST> ");
+            let mut pending = Vec::new();
+            read_until(&rx, &mut pending, "CLISAGE-TEST> ");
             let editing_mode = match (shell, mode) {
                 ("zsh", "emacs") => "bindkey -e",
                 ("zsh", _) => "bindkey -v",
@@ -341,15 +361,25 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
                 _ => "set -o vi",
             };
             writeln!(writer, "{editing_mode}; source \"$CLISAGE_TEST_SCRIPT\"").unwrap();
-            read_until(&rx, "CLISAGE-TEST> ");
+            read_until(&rx, &mut pending, "CLISAGE-TEST> ");
             writer.write_all(b"find large files\x1bg").unwrap();
-            read_until(&rx, "printf executed > \"$CLISAGE_TEST_MARKER\"");
+            read_until(&rx, &mut pending, " Clisage: thinking...");
+            read_until(
+                &rx,
+                &mut pending,
+                "printf executed > \"$CLISAGE_TEST_MARKER\"",
+            );
             assert!(
                 !marker.exists(),
                 "{shell} {mode} executed a suggestion without Enter"
             );
             // Discard the pending suggestion without accepting the line.
             writer.write_all(b"\x15").unwrap();
+            drop(child);
+            assert!(
+                !marker.exists(),
+                "PTY teardown must not submit a suggestion"
+            );
         }
     }
 }

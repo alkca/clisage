@@ -97,7 +97,24 @@ pub enum Mode {
     Explain,
 }
 
+mod context;
+mod editor;
+mod presentation;
+mod syntax;
+pub use context::RuntimeContext;
+pub use editor::{edit_prompt, resolve_editor};
+pub use presentation::{render_markdown, should_render_markdown};
+
 pub fn build_messages(mode: Mode, prompt: &str, input: &str) -> Result<Vec<Value>> {
+    build_messages_with_context(mode, prompt, input, &RuntimeContext::detect())
+}
+
+pub fn build_messages_with_context(
+    mode: Mode,
+    prompt: &str,
+    input: &str,
+    context: &RuntimeContext,
+) -> Result<Vec<Value>> {
     if prompt.trim().is_empty() && input.trim().is_empty() {
         return Err("provide a prompt or pipe input; see clisage --help".into());
     }
@@ -119,7 +136,7 @@ pub fn build_messages(mode: Mode, prompt: &str, input: &str) -> Result<Vec<Value
         format!("{prompt}\n\nPiped input:\n{input}")
     };
     Ok(vec![
-        json!({"role":"system", "content":instruction}),
+        json!({"role":"system", "content":format!("{instruction}\n{}", context.instruction())}),
         json!({"role":"user", "content":content}),
     ])
 }
