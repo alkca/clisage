@@ -242,11 +242,18 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
         time::{Duration, Instant},
     };
 
-    struct KillOnDrop(Box<dyn portable_pty::Child + Send + Sync>);
+    struct KillOnDrop {
+        child: Box<dyn portable_pty::Child + Send + Sync>,
+        writer: Option<Box<dyn Write + Send>>,
+    }
     impl Drop for KillOnDrop {
         fn drop(&mut self) {
-            let _ = self.0.kill();
-            let _ = self.0.wait();
+            // portable-pty's writer sends a newline/EOF on drop. Terminate
+            // the shell first so teardown cannot submit the pending command
+            // or block while the shell is still editing its input buffer.
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            self.writer.take();
         }
     }
     fn read_until(rx: &mpsc::Receiver<Vec<u8>>, pending: &mut Vec<u8>, needle: &str) {
@@ -323,10 +330,14 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
             cmd.env("PATH", dir.path());
             cmd.env("CLISAGE_TEST_SCRIPT", script);
             cmd.env("CLISAGE_TEST_MARKER", &marker);
-            let _child = KillOnDrop(pair.slave.spawn_command(cmd).unwrap());
+            let mut child = KillOnDrop {
+                child: pair.slave.spawn_command(cmd).unwrap(),
+                writer: None,
+            };
             drop(pair.slave);
             let mut reader = pair.master.try_clone_reader().unwrap();
-            let mut writer = pair.master.take_writer().unwrap();
+            child.writer = Some(pair.master.take_writer().unwrap());
+            let writer = child.writer.as_mut().unwrap();
             let (tx, rx) = mpsc::channel();
             std::thread::spawn(move || {
                 let mut buffer = [0; 4096];
@@ -364,6 +375,11 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
             );
             // Discard the pending suggestion without accepting the line.
             writer.write_all(b"\x15").unwrap();
+            drop(child);
+            assert!(
+                !marker.exists(),
+                "PTY teardown must not submit a suggestion"
+            );
         }
     }
 }
