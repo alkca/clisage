@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use clisage::{CREDENTIAL_ID, Config, Mode, Result};
 use secrecy::{ExposeSecret, SecretString};
 use std::{
@@ -25,7 +25,12 @@ struct Cli {
 #[derive(Subcommand)]
 enum Action {
     /// Suggest a shell command without executing it.
-    Shell { prompt: String },
+    Shell {
+        prompt: String,
+        /// Return one plain command after completion, for shell integration.
+        #[arg(long)]
+        command_only: bool,
+    },
     /// Explain a shell command without executing it.
     Explain { prompt: String },
     /// Manage encrypted credentials.
@@ -38,6 +43,16 @@ enum Action {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Print the opt-in Alt-G integration script for your shell.
+    Integration {
+        #[arg(value_enum)]
+        shell: IntegrationShell,
+    },
+}
+#[derive(Clone, Copy, ValueEnum)]
+enum IntegrationShell {
+    Zsh,
+    Bash,
 }
 #[derive(Subcommand)]
 enum Auth {
@@ -129,6 +144,16 @@ fn login() -> Result<SecretString> {
 }
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    if let Some(Action::Integration { shell }) = &cli.command {
+        print!(
+            "{}",
+            match shell {
+                IntegrationShell::Zsh => include_str!("../shell/clisage.zsh"),
+                IntegrationShell::Bash => include_str!("../shell/clisage.bash"),
+            }
+        );
+        return Ok(());
+    }
     let mut config = load_config()?;
     if let Some(model) = cli.model {
         config.model = model;
@@ -136,7 +161,7 @@ fn run() -> Result<()> {
     if config.model.trim().is_empty() {
         return Err("model must not be empty".into());
     }
-    let (mode, prompt) = match cli.command {
+    let (mode, prompt, command_only) = match cli.command {
         Some(Action::Config { .. }) => {
             print!("{}", toml::to_string_pretty(&config)?);
             return Ok(());
@@ -174,9 +199,23 @@ fn run() -> Result<()> {
             }
             return Ok(());
         }
-        Some(Action::Shell { prompt }) => (Mode::Shell, prompt),
-        Some(Action::Explain { prompt }) => (Mode::Explain, prompt),
-        None => (Mode::Prompt, cli.prompt.unwrap_or_default()),
+        Some(Action::Shell {
+            prompt,
+            command_only,
+        }) => (
+            if command_only {
+                Mode::ShellCommand
+            } else {
+                Mode::Shell
+            },
+            prompt,
+            command_only,
+        ),
+        Some(Action::Explain { prompt }) => (Mode::Explain, prompt, false),
+        Some(Action::Integration { .. }) => {
+            unreachable!("integration handled before configuration")
+        }
+        None => (Mode::Prompt, cli.prompt.unwrap_or_default(), false),
     };
     let mut input = String::new();
     if !io::stdin().is_terminal() {
@@ -207,14 +246,25 @@ fn run() -> Result<()> {
         .build()
         .map_err(|_| "unable to initialize HTTPS client")?;
     let mut output = io::stdout().lock();
+    // Shell widgets must receive either a complete validated command or nothing.
+    let mut command_buffer = Vec::new();
+    let response_output: &mut dyn Write = if command_only {
+        &mut command_buffer
+    } else {
+        &mut output
+    };
     clisage::request(
         &client,
         clisage::ENDPOINT,
         key.expose_secret(),
         &config,
         messages,
-        &mut output,
+        response_output,
     )?;
+    if command_only {
+        let text = std::str::from_utf8(&command_buffer).map_err(|_| "invalid command encoding")?;
+        output.write_all(clisage::command_suggestion(text)?.as_bytes())?;
+    }
     writeln!(output)?;
     Ok(())
 }

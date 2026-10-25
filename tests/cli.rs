@@ -173,3 +173,15 @@ fn failing_store_output_is_never_echoed() {
     assert!(!String::from_utf8_lossy(&out.stderr).contains("fake-sensitive-store-output"));
     assert!(String::from_utf8_lossy(&out.stderr).contains("locked"));
 }
+
+#[test]
+fn command_only_accepts_option_like_prompts_and_emits_nothing_on_failure() {
+    let (mut cmd, _dir) = cli();
+    let out = cmd
+        .args(["shell", "--command-only", "--", "--find large files"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("clisage auth login"));
+}

@@ -63,3 +63,35 @@ fn config_has_fixed_provider_and_credential_scope() {
         .is_err()
     );
 }
+
+#[test]
+fn command_only_mode_requests_a_single_plain_command() {
+    let messages = build_messages(Mode::ShellCommand, "find large files", "").unwrap();
+    let instruction = messages[0]["content"].as_str().unwrap();
+    assert!(instruction.contains("single line"));
+    assert!(instruction.contains("no Markdown"));
+    assert!(instruction.contains("Never execute"));
+}
+
+#[test]
+fn command_only_output_rejects_control_sequences_multiline_and_markdown() {
+    use clisage::command_suggestion;
+    assert_eq!(command_suggestion("  ls -lh\n").unwrap(), "ls -lh");
+    assert_eq!(
+        command_suggestion("printf 'café'").unwrap(),
+        "printf 'café'"
+    );
+    for invalid in [
+        "",
+        "  ",
+        "ls\nwhoami",
+        "ls\rwhoami",
+        "ls\t-l",
+        "\u{1b}[31mls",
+        "```sh\nls\n```",
+        "```ls```",
+        "ls\u{202e}abc",
+    ] {
+        assert!(command_suggestion(invalid).is_err(), "accepted {invalid:?}");
+    }
+}

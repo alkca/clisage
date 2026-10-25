@@ -13,6 +13,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Ensure Zsh is available for shell integration tests
+        if: runner.os == 'Linux'
+        run: command -v zsh || (sudo apt-get update && sudo apt-get install --yes zsh)
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo clippy --all-targets --locked -- -D warnings

@@ -33,6 +33,46 @@ precedence over `pass` and is never persisted. No API-key command-line flag exis
 `auth status` checks local availability, not whether OpenAI accepts the key.
 `auth logout` removes the stored key; unset the environment variable separately.
 
+## Alt-G shell integration
+
+After installing Clisage and running `clisage auth login`, enable the integration
+in your current shell. To keep it enabled, add the matching line near the end of
+your shell config, after other plugins that set key bindings.
+
+Zsh (`~/.zshrc`):
+
+```zsh
+eval "$(clisage integration zsh)"
+```
+
+Bash 4+ with Readline (`~/.bashrc`):
+
+```bash
+eval "$(clisage integration bash)"
+```
+
+Type a request such as `find files larger than 100 MB` at the shell prompt and
+press **Alt-G**. Clisage replaces the line with a command suggestion. Review or
+edit it, then press Enter yourself to execute it. It never accepts the line or
+evaluates model output. Empty input does nothing; a failed or cancelled request
+keeps the original text and cursor position. Responses are buffered until
+complete; multiline, Markdown-fenced, and control-character output is rejected.
+
+The integration binds Alt-g and Alt-Shift-g in Emacs and Vi insert modes, without
+changing your editing mode. Enabling it replaces any existing bindings on those
+keys, including a ShellGPT binding. Your terminal must send Alt/Option as Meta
+(Escape); **Escape followed by g** also works. On macOS, enable your terminal's
+Option-as-Meta setting and use Zsh or an updated Bash; Apple's stock Bash 3.2
+does not support this integration.
+
+The `eval` above loads only Clisage's bundled integration script. Clisage does not
+edit your shell config. Only the current input line is sent when you press the
+hotkey, so avoid triggering it on a line containing secrets. No shell history or
+directory contents are collected. Authenticate before using the widget; it does
+not run API-key onboarding while editing a command. GPG may still ask you to
+unlock your stored key. You can also request a plain
+command with `clisage shell --command-only 'find large files'`.
+
 ## Configuration and privacy
 
 Optional config: `$XDG_CONFIG_HOME/clisage/config.toml`, otherwise
@@ -63,7 +103,7 @@ CLI usage exits 2. Requests time out after 120 seconds and are not retried.
 ## Development
 
 ```sh
-cargo test --locked
+cargo test --locked # Requires Zsh and Bash for integration tests.
 cargo fmt --check
 cargo clippy --all-targets --locked -- -D warnings
 ```
