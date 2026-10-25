@@ -25,6 +25,10 @@ tree-sitter-json = "0.24"
 shell-words = "1"
 tempfile = "3"
 
+[build-dependencies]
+semver = "1"
+
 [dev-dependencies]
 portable-pty = "0.9"
 libc = "0.2"
+semver = "1"

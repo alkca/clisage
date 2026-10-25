@@ -10,7 +10,7 @@ use std::{
 
 #[derive(Parser)]
 #[command(
-    version,
+    version = env!("CLISAGE_BUILD_VERSION"),
     about = "A small shell AI assistant. Generated commands are only displayed."
 )]
 struct Cli {

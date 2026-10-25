@@ -35,6 +35,7 @@ jobs:
           expected=$(git rev-parse --short HEAD)
           read -r _ installed < <(brew list --versions clisage/ci/clisage)
           [[ "$installed" == "HEAD-$expected" ]]
+          bash scripts/check-build-version.sh "$GITHUB_SHA" "$(clisage --version)"
       - name: Run credential-free package tests
         run: brew test --HEAD clisage/ci/clisage
       - name: Check formula style

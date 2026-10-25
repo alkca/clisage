@@ -7,6 +7,9 @@ from Conventional Commits. No version has been released yet.
 
 ### Added
 
+- Automatic Git-derived SemVer build identities in `clisage --version`, including
+  commit counts, source revision, dirty state, and explicit archive/shallow-clone
+  markers, without modifying manifests or creating releases during builds.
 - OS, Linux distribution, and shell awareness in requests, including the actual
   shell used by the Bash and Zsh widgets.
 - Terminal Markdown rendering and syntax highlighting for shell/Bash, Rust,

@@ -185,6 +185,31 @@ follow-up work. No release or merge is performed by the bootstrap work.
 
 License: MIT OR Apache-2.0.
 
+## Build versions
+
+`clisage --version` identifies the source used to compile the binary. A clean
+checkout at its matching release tag, such as `v0.1.0`, reports `0.1.0`.
+Development builds report a SemVer prerelease such as
+`0.2.0-dev.7+g70781bad2390`: the next release target, number of commits since the
+last reachable stable release tag, and a 12-character commit hash. Rebuilding the
+same clean commit produces the same version. Uncommitted changes add `.dirty`.
+Before the first release tag, the target comes from Cargo.toml and the count
+covers the available commit history.
+
+The target follows Conventional Commits: `fix:` advances patch, `feat:` advances
+minor, and breaking changes advance major after 1.0 (minor during 0.x). Other
+development-only commits use the next patch target. A higher manifest version
+is preserved. This describes a development build; it does not create a release.
+`release-plz` continues to prepare reviewed manifest and changelog updates.
+
+The local build script rechecks Git on each Cargo build to detect tag changes,
+empty commits, and dirty state without changing source files or contacting the
+network. Archives or builds without usable Git metadata report
+`0.1.0-dev.0+unknown` (using the manifest's version). Shallow clones add `.shallow`
+because history and the release target may be incomplete. CI fetches full
+history, and Homebrew CI verifies that the installed binary identifies the exact
+tested commit. No timestamps or per-machine counters enter the version.
+
 ## Quality gates and release planning
 
 Every push and PR runs Rust tests, formatting, and Clippy on Linux and macOS.
