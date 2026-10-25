@@ -100,10 +100,12 @@ pub enum Mode {
 mod context;
 mod editor;
 mod presentation;
+mod progress;
 mod syntax;
 pub use context::RuntimeContext;
 pub use editor::{edit_prompt, resolve_editor};
 pub use presentation::{render_markdown, should_render_markdown};
+pub use progress::{ThinkingIndicator, ThinkingOutput};
 
 pub fn build_messages(mode: Mode, prompt: &str, input: &str) -> Result<Vec<Value>> {
     build_messages_with_context(mode, prompt, input, &RuntimeContext::detect())

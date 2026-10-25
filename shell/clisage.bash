@@ -3,14 +3,8 @@
 _clisage_bash_widget() {
     local suggestion
     [[ -n ${READLINE_LINE//[[:space:]]/} ]] || return 0
-    if [[ -t 2 ]]; then
-        printf '\n\r\033[2K%s Clisage: thinking...' "${CLISAGE_THINKING_ICON-}" >&2
-    fi
     local request_status=0
     suggestion=$(CLISAGE_SHELL=bash command clisage shell --command-only -- "$READLINE_LINE" </dev/null) || request_status=$?
-    if [[ -t 2 ]]; then
-        printf '\r\033[2K' >&2
-    fi
     if (( request_status == 0 )); then
         if [[ -n $suggestion ]]; then
             READLINE_LINE=$suggestion

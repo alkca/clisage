@@ -210,6 +210,45 @@ fn zsh_binds_alt_g_in_emacs_and_vi_insert_without_changing_mode() {
 }
 
 #[test]
+fn zsh_keeps_failure_messages_visible_after_refreshing_the_prompt() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("integration");
+    std::fs::write(&script, integration("zsh")).unwrap();
+    let fake = dir.path().join("clisage");
+    std::fs::write(&fake, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let zsh = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|path| path.join("zsh"))
+        .find(|path| path.is_file())
+        .expect("install Zsh for integration tests");
+    let output = Command::new(zsh)
+        .args([
+            "-dfc",
+            r#"
+        zle() {
+            case "$1" in
+                reset-prompt) visible_message='' ;;
+                -M) visible_message=$2 ;;
+            esac
+        }
+        source "$CLISAGE_TEST_SCRIPT"
+        BUFFER='fake request'
+        CURSOR=2
+        visible_message=''
+        _clisage_zsh_widget
+        print -r -- "$visible_message"
+    "#,
+        ])
+        .env("CLISAGE_TEST_SCRIPT", script)
+        .env("PATH", dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("request failed or cancelled"));
+}
+
+#[test]
 fn bash_without_a_terminal_does_not_register_bindings() {
     let dir = tempfile::tempdir().unwrap();
     let script = dir.path().join("integration");
@@ -363,7 +402,6 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
             writeln!(writer, "{editing_mode}; source \"$CLISAGE_TEST_SCRIPT\"").unwrap();
             read_until(&rx, &mut pending, "CLISAGE-TEST> ");
             writer.write_all(b"find large files\x1bg").unwrap();
-            read_until(&rx, &mut pending, " Clisage: thinking...");
             read_until(
                 &rx,
                 &mut pending,

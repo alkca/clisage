@@ -107,12 +107,21 @@ evaluates model output. Empty input does nothing; a failed or cancelled request
 keeps the original text and cursor position. Responses are buffered until
 complete; multiline, Markdown-fenced, and control-character output is rejected.
 
-While the request is running, the widget displays ** Clisage: thinking...** and
-clears it on success or replaces it with an error on failure. Use a Nerd Font
-in your terminal to display the spinner glyph. You can substitute an icon or
-ASCII text with `export CLISAGE_THINKING_ICON='...'` in your shell config.
-The indicator belongs to the widget, so it also appears when you bind the widget
-to a different shortcut. Reload the integration after upgrading to get the change.
+While a request is running, Rust displays ** Clisage: thinking... ⠋** on
+interactive stderr. The final character animates ten times per second. It clears
+before the first streamed text, or when a buffered suggestion or formatted
+response is ready, and before errors. Animation starts after credential reads,
+GPG unlocks, and login prompts finish so it cannot overwrite a pinentry prompt.
+This works in both direct
+CLI use and the shell widgets, including widgets bound to a different shortcut.
+Redirected stderr and `TERM=dumb` disable the indicator; ordinary redirected
+stdout also disables it, while `shell --command-only` keeps stderr progress for
+the widgets. The indicator never goes to stdout.
+
+Use a Nerd Font in your terminal for the badge glyph. You can substitute an icon
+or ASCII text with `export CLISAGE_THINKING_ICON='...'`, or set it to an empty
+string to show only the animated spinner and message. Reload the integration
+after upgrading so older widgets do not also display their static message.
 
 The integration binds Alt-g and Alt-Shift-g in Emacs and Vi insert modes, without
 changing your editing mode. Enabling it replaces any existing bindings on those
@@ -177,6 +186,31 @@ profiles, completions, signed release artifacts, and prebuilt Homebrew bottles a
 follow-up work. No release or merge is performed by the bootstrap work.
 
 License: MIT OR Apache-2.0.
+
+## Build versions
+
+`clisage --version` identifies the source used to compile the binary. A clean
+checkout at its matching release tag, such as `v0.1.0`, reports `0.1.0`.
+Development builds report a SemVer prerelease such as
+`0.2.0-dev.7+g70781bad2390`: the next release target, number of commits since the
+last reachable stable release tag, and a 12-character commit hash. Rebuilding the
+same clean commit produces the same version. Uncommitted changes add `.dirty`.
+Before the first release tag, the target comes from Cargo.toml and the count
+covers the available commit history.
+
+The target follows Conventional Commits: `fix:` advances patch, `feat:` advances
+minor, and breaking changes advance major after 1.0 (minor during 0.x). Other
+development-only commits use the next patch target. A higher manifest version
+is preserved. This describes a development build; it does not create a release.
+`release-plz` continues to prepare reviewed manifest and changelog updates.
+
+The local build script rechecks Git on each Cargo build to detect tag changes,
+empty commits, and dirty state without changing source files or contacting the
+network. Archives or builds without usable Git metadata report
+`0.1.0-dev.0+unknown` (using the manifest's version). Shallow clones add `.shallow`
+because history and the release target may be incomplete. CI fetches full
+history, and Homebrew CI verifies that the installed binary identifies the exact
+tested commit. No timestamps or per-machine counters enter the version.
 
 ## Quality gates and release planning
 

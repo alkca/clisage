@@ -27,7 +27,7 @@ class Titles(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
 
 
-class BrewSource(unittest.TestCase):
+class SourceFixture:
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -51,6 +51,7 @@ class BrewSource(unittest.TestCase):
             str(ROOT / 'scripts/prepare_homebrew_ci.py'), str(self.source), str(self.tap), sha],
             text=True, capture_output=True, env=GIT_ENV)
 
+class BrewSource(SourceFixture, unittest.TestCase):
     def test_formula_is_bound_to_checked_out_commit_and_source_is_unchanged(self):
         result = self.prepare(self.sha)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -111,6 +112,26 @@ class InstallSource(unittest.TestCase):
     def test_public_formula_survives_feature_branch_deletion(self):
         formula = (ROOT / 'Formula/clisage.rb').read_text()
         self.assertIn('head "https://github.com/alkca/clisage.git", branch: "main"', formula)
+
+
+class BuildVersion(SourceFixture, unittest.TestCase):
+    def verify(self, version):
+        return subprocess.run(['bash', str(ROOT / 'scripts/check-build-version.sh'), self.sha, version],
+                              cwd=self.source, text=True, capture_output=True, env=GIT_ENV)
+
+    def test_installed_build_must_identify_the_tested_revision(self):
+        self.assertEqual(self.verify(f'clisage 0.1.0-dev.1+g{self.sha[:12]}').returncode, 0)
+        for version in ['clisage 0.1.0', 'clisage 0.1.0-dev.0+unknown',
+                        'clisage 0.1.0-dev.1+g000000000000',
+                        f'clisage 0.1.0-dev.1+g{self.sha[:12]}.dirty',
+                        f'clisage 0.1.0-dev.1+g{self.sha[:12]}.shallow']:
+            with self.subTest(version=version):
+                self.assertNotEqual(self.verify(version).returncode, 0)
+
+    def test_clean_release_version_requires_a_matching_tag_at_the_tested_commit(self):
+        run('git', 'tag', 'v0.1.0', cwd=self.source)
+        self.assertEqual(self.verify('clisage 0.1.0').returncode, 0)
+        self.assertNotEqual(self.verify('clisage 0.2.0').returncode, 0)
 
 
 if __name__ == '__main__':

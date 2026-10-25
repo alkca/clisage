@@ -10,7 +10,7 @@ use std::{
 
 #[derive(Parser)]
 #[command(
-    version,
+    version = env!("CLISAGE_BUILD_VERSION"),
     about = "A small shell AI assistant. Generated commands are only displayed."
 )]
 struct Cli {
@@ -299,6 +299,14 @@ fn run() -> Result<()> {
             Err(error) => return Err(error),
         },
     };
+    // pass/GPG can open a tty pinentry even with stdin redirected. Keep all
+    // credential interaction free of background terminal output.
+    let progress_enabled = io::stderr().is_terminal()
+        && (command_only || io::stdout().is_terminal())
+        && !std::env::var("TERM").is_ok_and(|term| term == "dumb");
+    let progress_icon = std::env::var("CLISAGE_THINKING_ICON").ok();
+    let mut thinking =
+        clisage::ThinkingIndicator::start(progress_enabled, progress_icon.as_deref(), io::stderr());
     let client = reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
@@ -321,14 +329,18 @@ fn run() -> Result<()> {
     } else {
         &mut output
     };
-    clisage::request(
+    let mut response_output =
+        clisage::ThinkingOutput::new(response_output, &mut thinking, !(command_only || render));
+    let result = clisage::request(
         &client,
         clisage::ENDPOINT,
         key.expose_secret(),
         &config,
         messages,
-        response_output,
-    )?;
+        &mut response_output,
+    );
+    thinking.stop();
+    result?;
     if command_only {
         let text = std::str::from_utf8(&response_buffer).map_err(|_| "invalid command encoding")?;
         output.write_all(clisage::command_suggestion(text)?.as_bytes())?;
