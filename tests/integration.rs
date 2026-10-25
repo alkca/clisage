@@ -249,18 +249,24 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
             let _ = self.0.wait();
         }
     }
-    fn read_until(rx: &mpsc::Receiver<Vec<u8>>, needle: &str) {
+    fn read_until(rx: &mpsc::Receiver<Vec<u8>>, pending: &mut Vec<u8>, needle: &str) {
         let deadline = Instant::now() + Duration::from_secs(10);
-        let mut data = Vec::new();
-        while !String::from_utf8_lossy(&data).contains(needle) {
+        loop {
+            if let Some(index) = pending
+                .windows(needle.len())
+                .position(|bytes| bytes == needle.as_bytes())
+            {
+                pending.drain(..index + needle.len());
+                return;
+            }
             let remaining = deadline.saturating_duration_since(Instant::now());
             let chunk = rx.recv_timeout(remaining).unwrap_or_else(|_| {
                 panic!(
                     "terminal did not display {needle:?}: {}",
-                    String::from_utf8_lossy(&data)
+                    String::from_utf8_lossy(pending)
                 );
             });
-            data.extend_from_slice(&chunk);
+            pending.extend_from_slice(&chunk);
         }
     }
     for shell in ["zsh", "bash"] {
@@ -285,7 +291,7 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
             let fake = dir.path().join("clisage");
             std::fs::write(
                 &fake,
-                "#!/bin/sh\n/bin/sleep 0.2\nprintf '%s\\n' 'printf executed > \"$CLISAGE_TEST_MARKER\"'\n",
+                "#!/bin/sh\nprintf '%s\\n' 'printf executed > \"$CLISAGE_TEST_MARKER\"'\n",
             )
             .unwrap();
             std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -335,7 +341,8 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
                     }
                 }
             });
-            read_until(&rx, "CLISAGE-TEST> ");
+            let mut pending = Vec::new();
+            read_until(&rx, &mut pending, "CLISAGE-TEST> ");
             let editing_mode = match (shell, mode) {
                 ("zsh", "emacs") => "bindkey -e",
                 ("zsh", _) => "bindkey -v",
@@ -343,10 +350,14 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
                 _ => "set -o vi",
             };
             writeln!(writer, "{editing_mode}; source \"$CLISAGE_TEST_SCRIPT\"").unwrap();
-            read_until(&rx, "CLISAGE-TEST> ");
+            read_until(&rx, &mut pending, "CLISAGE-TEST> ");
             writer.write_all(b"find large files\x1bg").unwrap();
-            read_until(&rx, " Clisage: thinking...");
-            read_until(&rx, "printf executed > \"$CLISAGE_TEST_MARKER\"");
+            read_until(&rx, &mut pending, " Clisage: thinking...");
+            read_until(
+                &rx,
+                &mut pending,
+                "printf executed > \"$CLISAGE_TEST_MARKER\"",
+            );
             assert!(
                 !marker.exists(),
                 "{shell} {mode} executed a suggestion without Enter"
