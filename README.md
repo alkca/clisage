@@ -11,10 +11,12 @@ select its development branch in the tap checkout:
 ```sh
 brew tap alkca/clisage https://github.com/alkca/clisage
 git -C "$(brew --repository alkca/clisage)" switch feat/secure-cli-foundation
+git -C "$(brew --repository alkca/clisage)" remote set-head origin feat/secure-cli-foundation
 brew install --HEAD alkca/clisage/clisage
 ```
 
-Homebrew installs the Rust build toolchain and `pass`/GPG dependencies, then
+The `remote set-head` step keeps this tap on the development branch during
+Homebrew's automatic updates. Homebrew installs the Rust build toolchain and `pass`/GPG dependencies, then
 compiles Clisage. The first install can take several minutes. There are no
 prebuilt bottles yet. Homebrew does not create a GPG key or initialize your
 password store: if needed, run `pass init YOUR_GPG_KEY_ID` with an existing key,
