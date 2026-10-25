@@ -1,9 +1,8 @@
 name: Homebrew
 on:
   push:
-    paths: ["Formula/**", ".github/workflows/homebrew.yml"]
   pull_request:
-    paths: ["Formula/**", ".github/workflows/homebrew.yml"]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -15,13 +14,27 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
+        with:
+          version: '0.13.5'
       - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04
         with:
           stable: true
-      - name: Register the checked-out formula as a test tap
-        run: brew tap clisage/ci "$GITHUB_WORKSPACE"
-      - name: Build and install the development version
+      - name: Pin the CI formula to this exact checkout
+        run: |
+          brew tap clisage/ci "$GITHUB_WORKSPACE"
+          uv run --no-project --offline python scripts/prepare_homebrew_ci.py \
+            "$GITHUB_WORKSPACE" "$(brew --repository clisage/ci)" "$GITHUB_SHA"
+      - name: Build and install the tested revision
         run: brew install --HEAD --yes clisage/ci/clisage
+      - name: Verify installed revision
+        run: |
+          expected=$(git rev-parse --short HEAD)
+          read -r _ installed < <(brew list --versions clisage/ci/clisage)
+          [[ "$installed" == "HEAD-$expected" ]]
       - name: Run credential-free package tests
         run: brew test --HEAD clisage/ci/clisage
       - name: Check formula style

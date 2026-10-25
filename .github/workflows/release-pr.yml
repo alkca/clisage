@@ -1,0 +1,43 @@
+name: Release PR
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-pr
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: ./.github/actions/setup-release-plz
+      - name: Prepare version and changelog PR only
+        env:
+          GIT_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          release-plz release-pr --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+      # GitHub suppresses PR events generated with GITHUB_TOKEN. Dispatch read-only
+      # checks explicitly so bot-created release PRs still satisfy required checks.
+      - name: Validate release PR branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          while IFS= read -r branch; do
+            gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+            gh workflow run homebrew.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+          done < <(gh pr list --repo "$GITHUB_REPOSITORY" --state open \
+            --json headRefName --jq '.[] | select(.headRefName | startswith("release-plz-")) | .headRefName')

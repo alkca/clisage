@@ -1,21 +1,85 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   check:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: rustfmt, clippy
-      - name: Ensure Zsh is available for shell integration tests
-        if: runner.os == 'Linux'
-        run: command -v zsh || (sudo apt-get update && sudo apt-get install --yes zsh)
+      - name: Install real credential and shell test dependencies
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo apt-get update
+            sudo apt-get install --yes zsh pass gnupg
+          else
+            brew install --yes pass
+          fi
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo clippy --all-targets --locked -- -D warnings
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
+        with:
+          version: '0.13.5'
+      - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04
+        with:
+          stable: true
+      - name: Install static analysis tools
+        run: brew install --yes actionlint shellcheck gitleaks cargo-audit
+      - uses: ./.github/actions/setup-release-plz
+      - name: Scan complete Git history for secrets
+        run: gitleaks git --redact --no-banner .
+      - name: Audit locked dependencies
+        run: cargo audit --deny warnings
+      - name: Lint GitHub workflows
+        run: actionlint
+      - name: Lint Bash integration and scripts
+        run: shellcheck -s bash shell/clisage.bash scripts/*.sh
+      - name: Verify CI helper behavior and release planning
+        run: uv run --no-project --offline python -m unittest discover -s tests/tooling -v
+  pr-title:
+    name: PR title
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check Conventional Commit title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            scripts/check-pr-title.sh "$PR_TITLE"
+          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            title=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" --json title --jq '.[0].title // empty')
+            if [[ -n "$title" ]]; then
+              scripts/check-pr-title.sh "$title"
+            fi
+          fi

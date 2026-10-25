@@ -1,0 +1,11 @@
+[workspace]
+# This standalone CLI is versioned from Git, never published to crates.io.
+git_only = true
+semver_check = false
+dependencies_update = false
+features_always_increment_minor = true
+# Release PR preparation must never create tags or publish a release.
+git_release_enable = false
+git_tag_enable = false
+pr_draft = true
+pr_branch_prefix = "release-plz-"

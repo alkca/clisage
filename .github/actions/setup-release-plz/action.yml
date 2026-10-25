@@ -1,0 +1,19 @@
+name: Install verified release-plz
+description: Install the pinned glibc release planner used by CI and release PRs
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        [[ "$RUNNER_OS" == Linux && "$RUNNER_ARCH" == X64 ]]
+        temporary=$(mktemp -d)
+        trap 'rm -rf "$temporary"' EXIT
+        curl --proto '=https' --tlsv1.2 -fsSL \
+          https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.1/release-plz-x86_64-unknown-linux-gnu.tar.gz \
+          -o "$temporary/release-plz.tar.gz"
+        printf '4b70642e4270eeb7c073a2f16c4c168f9558f4e32bb98f0dd751b26eacd8bef1  %s\n' \
+          "$temporary/release-plz.tar.gz" | sha256sum --check --status
+        tar -xzf "$temporary/release-plz.tar.gz" -C "$temporary"
+        mkdir -p "$RUNNER_TEMP/release-tools"
+        install -m 755 "$temporary/release-plz" "$RUNNER_TEMP/release-tools/release-plz"
+        echo "$RUNNER_TEMP/release-tools" >> "$GITHUB_PATH"

@@ -184,6 +184,7 @@ name = "clisage"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "libc",
  "portable-pty",
  "reqwest",
  "rpassword",

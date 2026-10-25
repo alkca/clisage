@@ -17,3 +17,11 @@ Do not merge or release without explicit authorization. For each PR managed,
 inspect GitHub Copilot review comments after CI completes, address applicable
 recommendations, validate and push follow-up changes. Record why any recommendation
 does not apply in the PR workflow summary.
+
+CI and release policy:
+- Use Conventional Commit PR titles; squash merges preserve the semantic title.
+- Keep Homebrew tests pinned to the checkout SHA and enabled on every PR.
+- Run `uv run --no-project --offline python -m unittest discover -s tests/tooling -v`
+  with release-plz available, plus actionlint, ShellCheck, and cargo audit.
+- Release automation prepares draft PRs only; do not enable tag/release publishing
+  without explicit authorization. Do not add credentials to release fixtures.

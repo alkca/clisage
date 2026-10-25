@@ -144,3 +144,44 @@ profiles, completions, signed release artifacts, and prebuilt Homebrew bottles a
 follow-up work. No release or merge is performed by the bootstrap work.
 
 License: MIT OR Apache-2.0.
+
+## Quality gates and release planning
+
+Every push and PR runs Rust tests, formatting, and Clippy on Linux and macOS.
+Credential lifecycle tests generate a disposable GPG encryption key and use a
+fake API credential; they never access your keyring or call OpenAI. Homebrew CI
+also runs for every change and builds the exact checked-out commit, including
+PR merge commits, rather than downloading a moving development branch. It checks
+the installed revision before package smoke tests and formula linting.
+
+The Quality job scans complete Git history with Gitleaks, audits Cargo.lock
+against RustSec, checks workflows with actionlint and Bash with ShellCheck, and
+tests the CI helpers and actual release planner in temporary repositories.
+Main requires the Linux/macOS Rust and Homebrew checks, Quality, and PR title
+checks, with up-to-date branches and resolved conversations. The configuration
+is recorded in `.github/branch-protection.json`. A sole maintainer can merge a
+reviewed PR after checks; another human approval is not required. Copilot review
+comments must still be inspected and addressed after CI, as documented in
+AGENTS.md.
+
+PR titles follow Conventional Commits and become squash commit titles:
+
+- `fix: ...` proposes a patch version.
+- `feat: ...` proposes a minor version, including during 0.x development.
+- `feat!: ...` or another breaking-change commit proposes a major version after
+  1.0; during 0.x development it proposes the next minor version.
+
+After changes merge to main, the Release PR workflow uses release-plz to prepare
+a draft PR updating Cargo.toml, Cargo.lock, and CHANGELOG.md. The package is
+versioned from Git tags, with no crates.io publication. No existing tag means
+an initial release proposal at the manifest's version. The planner and its
+checksum are pinned in `.github/actions/setup-release-plz/action.yml`.
+
+This workflow only prepares PRs. It never merges, creates a tag, publishes a
+GitHub release, or ships binaries. Actual release/tag creation needs explicit
+maintainer authorization; that authorized tag then becomes the baseline for the
+next version proposal. Version/changelog edits alone do not establish a released
+version. Bot-created release PRs receive explicit CI dispatches because GitHub
+suppresses automatic PR events made with GITHUB_TOKEN; no personal token is
+required. Existing bootstrap commits are retained unchanged. Future squash PR
+titles supply semantic version information.
