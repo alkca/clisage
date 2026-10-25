@@ -2,7 +2,7 @@ class Clisage < Formula
   desc "Shell AI assistant with encrypted credentials and Unix pipelines"
   homepage "https://github.com/alkca/clisage"
   license any_of: ["MIT", "Apache-2.0"]
-  head "https://github.com/alkca/clisage.git", branch: "feat/secure-cli-foundation"
+  head "https://github.com/alkca/clisage.git", branch: "main"
 
   depends_on "rust" => :build
   depends_on "pass"
@@ -25,7 +25,7 @@ class Clisage < Formula
       To enable Alt-G in Zsh, add to ~/.zshrc:
         eval "$(clisage integration zsh)"
 
-      This HEAD formula builds the development branch from source.
+      This HEAD formula builds main from source.
     EOS
   end
 

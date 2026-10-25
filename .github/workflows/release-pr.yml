@@ -35,9 +35,4 @@ jobs:
       - name: Validate release PR branches
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          while IFS= read -r branch; do
-            gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
-            gh workflow run homebrew.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
-          done < <(gh pr list --repo "$GITHUB_REPOSITORY" --state open \
-            --json headRefName --jq '.[] | select(.headRefName | startswith("release-plz-")) | .headRefName')
+        run: bash scripts/dispatch-release-checks.sh

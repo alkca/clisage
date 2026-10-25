@@ -76,6 +76,42 @@ class BrewSource(unittest.TestCase):
         generated = (self.tap / 'Formula/clisage.rb').read_text()
         self.assertIn(f'revision: "{self.sha}"', generated)
 
+class ReleaseDispatch(unittest.TestCase):
+    def dispatch(self, list_status, branches):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary)
+            fake = path / 'gh'
+            fake.write_text('#!/bin/sh\nif [ "$1" = pr ]; then\n  printf "%s\\n" "$TEST_BRANCHES"\n  exit "$TEST_LIST_STATUS"\nfi\nprintf "%s\\n" "$*" >> "$TEST_CALLS"\n')
+            fake.chmod(0o700)
+            calls = path / 'calls'
+            environment = dict(os.environ, PATH=str(path) + os.pathsep + os.environ['PATH'],
+                               TEST_BRANCHES=branches, TEST_LIST_STATUS=str(list_status),
+                               TEST_CALLS=str(calls), GITHUB_REPOSITORY='fixture/repository')
+            result = subprocess.run(['bash', str(ROOT / 'scripts/dispatch-release-checks.sh')],
+                                    env=environment, text=True, capture_output=True)
+            return result.returncode, calls.read_text().splitlines() if calls.exists() else []
+
+    def test_failed_listing_does_not_silently_pass(self):
+        status, calls = self.dispatch(1, '')
+        self.assertNotEqual(status, 0)
+        self.assertEqual(calls, [])
+
+    def test_dispatches_both_checks_for_each_release_branch(self):
+        status, calls = self.dispatch(0, 'release-plz-fixture\nrelease-plz-second')
+        self.assertEqual(status, 0)
+        self.assertEqual(len(calls), 4)
+        self.assertIn('--ref release-plz-fixture', calls[0])
+        self.assertTrue(any('homebrew.yml' in call for call in calls))
+
+    def test_no_release_branches_does_not_dispatch(self):
+        self.assertEqual(self.dispatch(0, ''), (0, []))
+
+
+class InstallSource(unittest.TestCase):
+    def test_public_formula_survives_feature_branch_deletion(self):
+        formula = (ROOT / 'Formula/clisage.rb').read_text()
+        self.assertIn('head "https://github.com/alkca/clisage.git", branch: "main"', formula)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -185,3 +185,21 @@ fn command_only_accepts_option_like_prompts_and_emits_nothing_on_failure() {
     assert!(out.stdout.is_empty());
     assert!(String::from_utf8_lossy(&out.stderr).contains("clisage auth login"));
 }
+
+#[cfg(unix)]
+#[test]
+fn headless_store_access_disables_pinentry_and_preserves_custom_gpg_options() {
+    use std::os::unix::fs::PermissionsExt;
+    let (mut cmd, dir) = cli();
+    let fake = dir.path().join("pass");
+    std::fs::write(&fake, "#!/bin/sh\n[ \"$PASSWORD_STORE_GPG_OPTS\" = '--no-auto-key-retrieve --pinentry-mode error' ] || exit 1\nprintf 'fake-store-key\\n'\n").unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let out = cmd
+        .env("PATH", dir.path())
+        .env("PASSWORD_STORE_GPG_OPTS", "--no-auto-key-retrieve")
+        .args(["auth", "status"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("fake-store-key"));
+}

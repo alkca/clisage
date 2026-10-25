@@ -96,7 +96,14 @@ fn env_key() -> Result<Option<SecretString>> {
     }
 }
 fn pass_read() -> Result<SecretString> {
-    let out = Command::new("pass").args(["show", CREDENTIAL_ID]).stdin(Stdio::null()).stderr(Stdio::null()).output()
+    let mut command = Command::new("pass");
+    if !io::stderr().is_terminal() {
+        // Cached credentials remain usable; unattended jobs must never open pinentry.
+        let mut options = std::env::var_os("PASSWORD_STORE_GPG_OPTS").unwrap_or_default();
+        options.push(" --pinentry-mode error");
+        command.env("PASSWORD_STORE_GPG_OPTS", options);
+    }
+    let out = command.args(["show", CREDENTIAL_ID]).stdin(Stdio::null()).stderr(Stdio::null()).output()
         .map_err(|_| "pass unavailable; install and initialize pass/GPG, then run clisage auth login; automation can supply CLISAGE_API_KEY")?;
     if !out.status.success() {
         return Err("credential missing, locked, or unavailable; unlock/initialize pass and run clisage auth login".into());
