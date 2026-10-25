@@ -106,7 +106,7 @@ fn first_streamed_text_stops_progress_before_writing_the_response() {
 
 #[cfg(unix)]
 #[test]
-fn real_cli_animates_on_terminal_stderr_and_clears_before_authentication_errors() {
+fn credential_unlock_prompts_are_not_overwritten_by_the_spinner() {
     use portable_pty::{CommandBuilder, PtySize, native_pty_system};
     use std::{io::Read, os::unix::fs::PermissionsExt};
     struct Cleanup(Box<dyn portable_pty::Child + Send + Sync>);
@@ -119,7 +119,11 @@ fn real_cli_animates_on_terminal_stderr_and_clears_before_authentication_errors(
     for term in ["xterm", "dumb"] {
         let dir = tempfile::tempdir().unwrap();
         let pass = dir.path().join("pass");
-        std::fs::write(&pass, "#!/bin/sh\n/bin/sleep 0.4\nexit 1\n").unwrap();
+        std::fs::write(
+            &pass,
+            "#!/bin/sh\nprintf 'TEST PINENTRY active\\n' > /dev/tty\n/bin/sleep 0.4\nexit 1\n",
+        )
+        .unwrap();
         std::fs::set_permissions(&pass, std::fs::Permissions::from_mode(0o700)).unwrap();
         let pair = native_pty_system().openpty(PtySize::default()).unwrap();
         let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_clisage"));
@@ -154,14 +158,8 @@ fn real_cli_animates_on_terminal_stderr_and_clears_before_authentication_errors(
         }
         assert!(!child.0.wait().unwrap().success());
         let output = String::from_utf8(bytes).unwrap();
-        if term == "xterm" {
-            assert!(output.contains("TESTICON Clisage: thinking... ⠋"));
-            assert!(output.contains("⠙"));
-            let last_clear = output.rfind("\r\x1b[2K").unwrap();
-            assert!(last_clear < output.find("clisage: pass is not initialized").unwrap());
-        } else {
-            assert!(!output.contains("Clisage: thinking"));
-            assert!(!output.contains("\x1b[2K"));
-        }
+        assert!(output.contains("TEST PINENTRY active"));
+        assert!(!output.contains("Clisage: thinking"));
+        assert!(!output.contains("\x1b[2K"));
     }
 }

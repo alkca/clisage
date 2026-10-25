@@ -288,30 +288,25 @@ fn run() -> Result<()> {
         }
     }
     let messages = clisage::build_messages(mode, &prompt, &input)?;
+    let key = match env_key()? {
+        Some(key) => key,
+        None => match pass_read() {
+            Ok(key) => key,
+            Err(error) if io::stdin().is_terminal() && io::stderr().is_terminal() => {
+                eprintln!("{error}");
+                login()?
+            }
+            Err(error) => return Err(error),
+        },
+    };
+    // pass/GPG can open a tty pinentry even with stdin redirected. Keep all
+    // credential interaction free of background terminal output.
     let progress_enabled = io::stderr().is_terminal()
         && (command_only || io::stdout().is_terminal())
         && !std::env::var("TERM").is_ok_and(|term| term == "dumb");
     let progress_icon = std::env::var("CLISAGE_THINKING_ICON").ok();
     let mut thinking =
         clisage::ThinkingIndicator::start(progress_enabled, progress_icon.as_deref(), io::stderr());
-    let key = match env_key()? {
-        Some(key) => key,
-        None => match pass_read() {
-            Ok(key) => key,
-            Err(error) if io::stdin().is_terminal() && io::stderr().is_terminal() => {
-                thinking.stop();
-                eprintln!("{error}");
-                let key = login()?;
-                thinking = clisage::ThinkingIndicator::start(
-                    progress_enabled,
-                    progress_icon.as_deref(),
-                    io::stderr(),
-                );
-                key
-            }
-            Err(error) => return Err(error),
-        },
-    };
     let client = reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))

@@ -110,7 +110,9 @@ complete; multiline, Markdown-fenced, and control-character output is rejected.
 While a request is running, Rust displays ** Clisage: thinking... ⠋** on
 interactive stderr. The final character animates ten times per second. It clears
 before the first streamed text, or when a buffered suggestion or formatted
-response is ready, and before errors or login prompts. This works in both direct
+response is ready, and before errors. Animation starts after credential reads,
+GPG unlocks, and login prompts finish so it cannot overwrite a pinentry prompt.
+This works in both direct
 CLI use and the shell widgets, including widgets bound to a different shortcut.
 Redirected stderr and `TERM=dumb` disable the indicator; ordinary redirected
 stdout also disables it, while `shell --command-only` keeps stderr progress for
