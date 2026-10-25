@@ -1,2 +1,76 @@
-# clisage
-A small Rust shell AI assistant with secure credentials and Unix pipelines.
+# Clisage
+
+A small Rust shell AI assistant for macOS and Linux. Early development: source
+installation only; **no Homebrew formula or release is available yet**.
+
+## Try it
+
+Requires a current stable Rust toolchain. Persistent credentials additionally
+require [`pass`](https://www.passwordstore.org/), GPG, an initialized password
+store (`pass init YOUR_GPG_KEY_ID`), and working pinentry.
+
+```sh
+cargo install --path . --locked
+clisage auth login
+clisage 'Explain Unix pipes'
+clisage shell 'Find files larger than 100 MB'
+clisage explain 'find . -type f -size +100M'
+git diff | clisage 'Write a commit message'
+clisage auth status
+clisage config show
+clisage auth logout
+```
+
+Login reads a hidden API key from the terminal, stores it at
+`clisage/openai/api.openai.com/default` in `pass`, then reads it back to verify
+storage. Clisage never initializes your GPG store automatically. Noninteractive
+login fails without reading a key from stdin. Interactive first use offers the
+same login when there is no entry. A locked, missing or unavailable store
+produces actionable guidance and never falls back to a plaintext file.
+
+For automation, supply `CLISAGE_API_KEY` through your CI secret manager. It takes
+precedence over `pass` and is never persisted. No API-key command-line flag exists.
+`auth status` checks local availability, not whether OpenAI accepts the key.
+`auth logout` removes the stored key; unset the environment variable separately.
+
+## Configuration and privacy
+
+Optional config: `$XDG_CONFIG_HOME/clisage/config.toml`, otherwise
+`~/.config/clisage/config.toml` (including on macOS). `config show` prints defaults
+without writing files. Create this file yourself to change the model:
+
+```toml
+config_version = 1
+model = "gpt-4.1-mini"
+credential_backend = "pass"
+```
+
+The provider and HTTPS endpoint are fixed to OpenAI in this first slice, binding
+stored keys to `api.openai.com`. Unknown config fields are rejected, including
+API keys and endpoint overrides. The [Chat Completions API](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
+streams responses. The [default model](https://developers.openai.com/api/docs/models/gpt-4.1-mini)
+is configurable; availability depends on your account.
+
+Your explicit prompt and any piped stdin are sent to OpenAI with `store: false`.
+Provider retention policies still apply. Clisage has no telemetry, saved chats,
+directory scanning, or shell history collection. Results go to stdout; diagnostics
+go to stderr. Shell mode **only displays suggestions**. Review them before use.
+Credentials are protected at rest by GPG, not against all same-user access.
+Secrets are redacted in diagnostics, but transport libraries may make memory
+copies. A broken pipe exits successfully; other runtime errors exit 1 and invalid
+CLI usage exits 2. Requests time out after 120 seconds and are not retried.
+
+## Development
+
+```sh
+cargo test --locked
+cargo fmt --check
+cargo clippy --all-targets --locked -- -D warnings
+```
+
+Tests use fake credentials and local mock HTTP, without real API keys or paid
+requests. CI runs on Linux and macOS. Native Apple Keychain / Linux Secret Service,
+profiles, completions, signed release artifacts, and Homebrew installation are
+follow-up work. No release or merge is performed by the bootstrap work.
+
+License: MIT OR Apache-2.0.
