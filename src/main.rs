@@ -288,13 +288,26 @@ fn run() -> Result<()> {
         }
     }
     let messages = clisage::build_messages(mode, &prompt, &input)?;
+    let progress_enabled = io::stderr().is_terminal()
+        && (command_only || io::stdout().is_terminal())
+        && !std::env::var("TERM").is_ok_and(|term| term == "dumb");
+    let progress_icon = std::env::var("CLISAGE_THINKING_ICON").ok();
+    let mut thinking =
+        clisage::ThinkingIndicator::start(progress_enabled, progress_icon.as_deref(), io::stderr());
     let key = match env_key()? {
         Some(key) => key,
         None => match pass_read() {
             Ok(key) => key,
             Err(error) if io::stdin().is_terminal() && io::stderr().is_terminal() => {
+                thinking.stop();
                 eprintln!("{error}");
-                login()?
+                let key = login()?;
+                thinking = clisage::ThinkingIndicator::start(
+                    progress_enabled,
+                    progress_icon.as_deref(),
+                    io::stderr(),
+                );
+                key
             }
             Err(error) => return Err(error),
         },
@@ -321,14 +334,18 @@ fn run() -> Result<()> {
     } else {
         &mut output
     };
-    clisage::request(
+    let mut response_output =
+        clisage::ThinkingOutput::new(response_output, &mut thinking, !(command_only || render));
+    let result = clisage::request(
         &client,
         clisage::ENDPOINT,
         key.expose_secret(),
         &config,
         messages,
-        response_output,
-    )?;
+        &mut response_output,
+    );
+    thinking.stop();
+    result?;
     if command_only {
         let text = std::str::from_utf8(&response_buffer).map_err(|_| "invalid command encoding")?;
         output.write_all(clisage::command_suggestion(text)?.as_bytes())?;

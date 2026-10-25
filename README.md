@@ -107,12 +107,19 @@ evaluates model output. Empty input does nothing; a failed or cancelled request
 keeps the original text and cursor position. Responses are buffered until
 complete; multiline, Markdown-fenced, and control-character output is rejected.
 
-While the request is running, the widget displays ** Clisage: thinking...** and
-clears it on success or replaces it with an error on failure. Use a Nerd Font
-in your terminal to display the spinner glyph. You can substitute an icon or
-ASCII text with `export CLISAGE_THINKING_ICON='...'` in your shell config.
-The indicator belongs to the widget, so it also appears when you bind the widget
-to a different shortcut. Reload the integration after upgrading to get the change.
+While a request is running, Rust displays ** Clisage: thinking... ⠋** on
+interactive stderr. The final character animates ten times per second. It clears
+before the first streamed text, or when a buffered suggestion or formatted
+response is ready, and before errors or login prompts. This works in both direct
+CLI use and the shell widgets, including widgets bound to a different shortcut.
+Redirected stderr and `TERM=dumb` disable the indicator; ordinary redirected
+stdout also disables it, while `shell --command-only` keeps stderr progress for
+the widgets. The indicator never goes to stdout.
+
+Use a Nerd Font in your terminal for the badge glyph. You can substitute an icon
+or ASCII text with `export CLISAGE_THINKING_ICON='...'`, or set it to an empty
+string to show only the animated spinner and message. Reload the integration
+after upgrading so older widgets do not also display their static message.
 
 The integration binds Alt-g and Alt-Shift-g in Emacs and Vi insert modes, without
 changing your editing mode. Enabling it replaces any existing bindings on those

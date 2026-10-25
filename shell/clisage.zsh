@@ -2,22 +2,23 @@
 # Only an explicit Alt-G sends the current input line to the provider.
 _clisage_zsh_widget() {
     emulate -L zsh
-    local suggestion
+    local suggestion message
     [[ -n ${BUFFER//[[:space:]]/} ]] || return 0
-    zle -M "${CLISAGE_THINKING_ICON-} Clisage: thinking..."
-    zle -R
+    # Rust owns progress on stderr; invalidate ZLE before terminal output.
+    zle -I
     if suggestion=$(CLISAGE_SHELL=zsh command clisage shell --command-only -- "$BUFFER" </dev/null); then
         if [[ -n $suggestion ]]; then
             BUFFER=$suggestion
             CURSOR=${#BUFFER}
-            zle -M ''
-            zle reset-prompt
         else
-            zle -M 'Clisage: empty suggestion; original input kept.'
+            message='Clisage: empty suggestion; original input kept.'
         fi
     else
-        zle -M 'Clisage: request failed or cancelled; original input kept.'
+        message='Clisage: request failed or cancelled; original input kept.'
     fi
+    zle reset-prompt
+    zle -R
+    [[ -z $message ]] || zle -M "$message"
     # Assigning BUFFER never accepts or executes the line.
     return 0
 }
