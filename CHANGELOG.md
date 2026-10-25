@@ -5,6 +5,18 @@ from Conventional Commits. No version has been released yet.
 
 ## [Unreleased]
 
+## [0.1.0](https://github.com/alkca/clisage/releases/tag/v0.1.0) - 2026-10-25
+
+### Added
+
+- add Git-derived build versions and animated progress ([#4](https://github.com/alkca/clisage/pull/4))
+- add platform-aware prompts and terminal enhancements ([#3](https://github.com/alkca/clisage/pull/3))
+- add secure Clisage CLI with enforced quality gates ([#1](https://github.com/alkca/clisage/pull/1))
+
+### Other
+
+- Initial commit
+
 ### Added
 
 - Automatic Git-derived SemVer build identities in `clisage --version`, including
