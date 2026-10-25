@@ -67,6 +67,7 @@ fn widget(shell: &str, original: &str, suggestion: &str, status: &str) -> (Strin
     let executable = dir.path().join("clisage");
     std::fs::write(&executable, r#"#!/bin/sh
 [ "$1" = shell ] && [ "$2" = --command-only ] && [ "$3" = -- ] && [ "$4" = "$CLISAGE_TEST_PROMPT" ] && [ "$#" = 4 ] || exit 90
+[ "$CLISAGE_SHELL" = "$CLISAGE_TEST_SHELL" ] || exit 93
 # The widget must never feed terminal input to the CLI.
 if IFS= read -r ignored; then exit 91; fi
 printf '%s' "$CLISAGE_TEST_OUTPUT"
@@ -109,6 +110,7 @@ exit "$CLISAGE_TEST_STATUS"
     let mut child = cmd
         .env("PATH", dir.path())
         .env("CLISAGE_TEST_SCRIPT", script)
+        .env("CLISAGE_TEST_SHELL", shell)
         .env("CLISAGE_TEST_PROMPT", original)
         .env("CLISAGE_TEST_OUTPUT", suggestion)
         .env("CLISAGE_TEST_STATUS", status)
@@ -283,7 +285,7 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
             let fake = dir.path().join("clisage");
             std::fs::write(
                 &fake,
-                "#!/bin/sh\nprintf '%s\\n' 'printf executed > \"$CLISAGE_TEST_MARKER\"'\n",
+                "#!/bin/sh\n/bin/sleep 0.2\nprintf '%s\\n' 'printf executed > \"$CLISAGE_TEST_MARKER\"'\n",
             )
             .unwrap();
             std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -343,6 +345,7 @@ fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
             writeln!(writer, "{editing_mode}; source \"$CLISAGE_TEST_SCRIPT\"").unwrap();
             read_until(&rx, "CLISAGE-TEST> ");
             writer.write_all(b"find large files\x1bg").unwrap();
+            read_until(&rx, " Clisage: thinking...");
             read_until(&rx, "printf executed > \"$CLISAGE_TEST_MARKER\"");
             assert!(
                 !marker.exists(),

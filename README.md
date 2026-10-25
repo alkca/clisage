@@ -36,6 +36,9 @@ clisage auth login
 clisage 'Explain Unix pipes'
 clisage shell 'Find files larger than 100 MB'
 clisage explain 'find . -type f -size +100M'
+clisage --editor
+clisage shell --editor 'Find large files'
+clisage --no-markdown 'Explain Unix pipes'
 git diff | clisage 'Write a commit message'
 clisage auth status
 clisage config show
@@ -56,6 +59,27 @@ For automation, supply `CLISAGE_API_KEY` through your CI secret manager. It take
 precedence over `pass` and is never persisted. No API-key command-line flag exists.
 `auth status` checks local availability, not whether OpenAI accepts the key.
 `auth logout` removes the stored key; unset the environment variable separately.
+
+## Terminal output and editor prompts
+
+Clisage renders Markdown in interactive terminals, including headings, emphasis,
+lists, links, tables, and syntax colors for fenced code blocks with a language
+label. Highlighting supports shell/Bash, Rust, Python, JavaScript, and JSON, plus
+common aliases such as `sh`, `rs`, `py`, and `js`. Other languages remain readable
+as plain code. Formatted responses appear after generation completes. Use `--no-markdown`
+to see the original response as it streams. Redirected output stays unformatted
+and streaming by default; `--markdown` explicitly enables formatting there.
+Nonempty `NO_COLOR` disables formatting, and `TERM=dumb` disables automatic
+formatting. `shell --command-only` always returns a plain command.
+
+Use `--editor` to compose a multiline prompt in `$EDITOR`, falling back to
+`$VISUAL`, then `vi`. An optional prompt argument pre-fills the temporary file;
+this also works with `shell` and `explain`. Editor commands may contain quoted
+arguments, such as `EDITOR='code --wait'`; Clisage invokes the editor directly
+without shell expansion. Save and close the editor to submit. An empty file or
+unsuccessful editor exit cancels the request. Piped input cannot be combined with
+`--editor`. The temporary prompt file is private and removed when Clisage exits
+normally; editor-created backups follow your editor settings.
 
 ## Alt-G shell integration
 
@@ -81,6 +105,13 @@ edit it, then press Enter yourself to execute it. It never accepts the line or
 evaluates model output. Empty input does nothing; a failed or cancelled request
 keeps the original text and cursor position. Responses are buffered until
 complete; multiline, Markdown-fenced, and control-character output is rejected.
+
+While the request is running, the widget displays ** Clisage: thinking...** and
+clears it on success or replaces it with an error on failure. Use a Nerd Font
+in your terminal to display the spinner glyph. You can substitute an icon or
+ASCII text with `export CLISAGE_THINKING_ICON='...'` in your shell config.
+The indicator belongs to the widget, so it also appears when you bind the widget
+to a different shortcut. Reload the integration after upgrading to get the change.
 
 The integration binds Alt-g and Alt-Shift-g in Emacs and Vi insert modes, without
 changing your editing mode. Enabling it replaces any existing bindings on those
@@ -118,6 +149,11 @@ GPT-6 Luna uses reasoning effort `none` for quick shell responses. Other model
 overrides use their provider defaults.
 
 Your explicit prompt and any piped stdin are sent to OpenAI with `store: false`.
+Requests also include the OS name, Linux distribution name when available from
+`/etc/os-release`, and shell name from `$SHELL`. The Bash/Zsh widgets supply their
+actual shell; `CLISAGE_SHELL` can override it for direct CLI use. Only the shell
+basename is included, never its filesystem path. Missing shell metadata falls
+back to portable POSIX suggestions.
 Provider retention policies still apply. Clisage has no telemetry, saved chats,
 directory scanning, or shell history collection. Results go to stdout; diagnostics
 go to stderr. Shell mode **only displays suggestions**. Review them before use.

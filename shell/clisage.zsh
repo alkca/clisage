@@ -4,11 +4,13 @@ _clisage_zsh_widget() {
     emulate -L zsh
     local suggestion
     [[ -n ${BUFFER//[[:space:]]/} ]] || return 0
-    zle -M 'Clisage: generating a command suggestion...'
-    if suggestion=$(command clisage shell --command-only -- "$BUFFER" </dev/null); then
+    zle -M "${CLISAGE_THINKING_ICON-} Clisage: thinking..."
+    zle -R
+    if suggestion=$(CLISAGE_SHELL=zsh command clisage shell --command-only -- "$BUFFER" </dev/null); then
         if [[ -n $suggestion ]]; then
             BUFFER=$suggestion
             CURSOR=${#BUFFER}
+            zle -M ''
             zle reset-prompt
         else
             zle -M 'Clisage: empty suggestion; original input kept.'
