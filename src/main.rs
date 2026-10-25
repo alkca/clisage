@@ -271,9 +271,10 @@ fn run() -> Result<()> {
                 "--editor requires a terminal and cannot be combined with piped input".into(),
             );
         }
-        let editor = std::env::var("EDITOR")
-            .or_else(|_| std::env::var("VISUAL"))
-            .unwrap_or_else(|_| "vi".into());
+        let editor = clisage::resolve_editor(
+            std::env::var("EDITOR").ok().as_deref(),
+            std::env::var("VISUAL").ok().as_deref(),
+        );
         prompt = clisage::edit_prompt(&editor, &prompt)?;
     }
     let mut input = String::new();

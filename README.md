@@ -73,7 +73,8 @@ Nonempty `NO_COLOR` disables formatting, and `TERM=dumb` disables automatic
 formatting. `shell --command-only` always returns a plain command.
 
 Use `--editor` to compose a multiline prompt in `$EDITOR`, falling back to
-`$VISUAL`, then `vi`. An optional prompt argument pre-fills the temporary file;
+`$VISUAL`, then `vi`; empty or whitespace-only settings are skipped.
+An optional prompt argument pre-fills the temporary file;
 this also works with `shell` and `explain`. Editor commands may contain quoted
 arguments, such as `EDITOR='code --wait'`; Clisage invokes the editor directly
 without shell expansion. Save and close the editor to submit. An empty file or

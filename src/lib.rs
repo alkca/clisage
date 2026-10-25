@@ -102,7 +102,7 @@ mod editor;
 mod presentation;
 mod syntax;
 pub use context::RuntimeContext;
-pub use editor::edit_prompt;
+pub use editor::{edit_prompt, resolve_editor};
 pub use presentation::{render_markdown, should_render_markdown};
 
 pub fn build_messages(mode: Mode, prompt: &str, input: &str) -> Result<Vec<Value>> {

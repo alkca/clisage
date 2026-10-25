@@ -1,6 +1,19 @@
 use clisage::{Mode, RuntimeContext, build_messages_with_context, edit_prompt, render_markdown};
 
 #[test]
+fn editor_selection_ignores_empty_settings_and_preserves_quoted_arguments() {
+    use clisage::resolve_editor;
+    assert_eq!(resolve_editor(None, None), "vi");
+    assert_eq!(resolve_editor(Some(""), Some("nvim --wait")), "nvim --wait");
+    assert_eq!(resolve_editor(Some(" \t"), Some("")), "vi");
+    assert_eq!(resolve_editor(None, Some(" \n")), "vi");
+    assert_eq!(
+        resolve_editor(Some("'my editor' --wait"), Some("other")),
+        "'my editor' --wait"
+    );
+}
+
+#[test]
 fn markdown_output_policy_preserves_pipes_and_command_suggestions() {
     use clisage::should_render_markdown as render;
     assert!(render(true, false, false, false, false, false));

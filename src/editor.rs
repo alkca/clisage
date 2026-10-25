@@ -4,6 +4,14 @@ use std::{
     process::Command,
 };
 
+pub fn resolve_editor(editor: Option<&str>, visual: Option<&str>) -> String {
+    editor
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| visual.filter(|value| !value.trim().is_empty()))
+        .unwrap_or("vi")
+        .to_owned()
+}
+
 /// Invoke an editor directly, with quoted arguments but no shell evaluation.
 pub fn edit_prompt(editor: &str, initial: &str) -> Result<String> {
     let args = shell_words::split(editor).map_err(|_| "invalid quoting in EDITOR")?;
