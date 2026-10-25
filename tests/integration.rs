@@ -208,7 +208,7 @@ fn zsh_binds_alt_g_in_emacs_and_vi_insert_without_changing_mode() {
 }
 
 #[test]
-fn bash_binds_alt_g_in_emacs_and_vi_insert_without_changing_mode() {
+fn bash_without_a_terminal_does_not_register_bindings() {
     let dir = tempfile::tempdir().unwrap();
     let script = dir.path().join("integration");
     std::fs::write(&script, integration("bash")).unwrap();
@@ -218,35 +218,138 @@ fn bash_binds_alt_g_in_emacs_and_vi_insert_without_changing_mode() {
             "--norc",
             "-ic",
             r#"
-        # Stock macOS Bash 3 lacks READLINE_LINE; the integration explains this.
-        if (( BASH_VERSINFO[0] < 4 )); then
+            bind() { printf 'unexpected binding registration'; }
             source "$CLISAGE_TEST_SCRIPT"
-            exit
-        fi
-        set -o vi
-        source "$CLISAGE_TEST_SCRIPT"
-        [[ -o vi ]] || exit 1
-        bind -m emacs-standard -X
-        bind -m vi-insert -X
-    "#,
+        "#,
         ])
-        .env("INPUTRC", "/dev/null")
         .env("CLISAGE_TEST_SCRIPT", script)
         .stdin(Stdio::null())
         .output()
         .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    if String::from_utf8_lossy(&out.stderr).contains("requires Bash 4+") {
-        return;
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("unexpected binding registration"));
+}
+
+#[cfg(unix)]
+#[test]
+fn actual_alt_g_keeps_suggestions_editable_in_emacs_and_vi_modes() {
+    use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+    use std::{
+        io::Read,
+        os::unix::fs::PermissionsExt,
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+
+    struct KillOnDrop(Box<dyn portable_pty::Child + Send + Sync>);
+    impl Drop for KillOnDrop {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
     }
-    assert_eq!(
-        String::from_utf8_lossy(&out.stdout)
-            .matches("_clisage_bash_widget")
-            .count(),
-        4
-    );
+    fn read_until(rx: &mpsc::Receiver<Vec<u8>>, needle: &str) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut data = Vec::new();
+        while !String::from_utf8_lossy(&data).contains(needle) {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let chunk = rx.recv_timeout(remaining).unwrap_or_else(|_| {
+                panic!(
+                    "terminal did not display {needle:?}: {}",
+                    String::from_utf8_lossy(&data)
+                );
+            });
+            data.extend_from_slice(&chunk);
+        }
+    }
+    for shell in ["zsh", "bash"] {
+        if shell == "bash" {
+            let version = Command::new(shell)
+                .args(["-c", "printf '%s' \"${BASH_VERSINFO[0]}\""])
+                .output()
+                .unwrap();
+            if String::from_utf8(version.stdout)
+                .unwrap()
+                .parse::<u32>()
+                .unwrap()
+                < 4
+            {
+                continue;
+            }
+        }
+        for mode in ["emacs", "vi"] {
+            let dir = tempfile::tempdir().unwrap();
+            let script = dir.path().join("integration");
+            std::fs::write(&script, integration(shell)).unwrap();
+            let fake = dir.path().join("clisage");
+            std::fs::write(
+                &fake,
+                "#!/bin/sh\nprintf '%s\\n' 'printf executed > \"$CLISAGE_TEST_MARKER\"'\n",
+            )
+            .unwrap();
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let marker = dir.path().join("must-not-execute");
+            let shell_path = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+                .map(|path| path.join(shell))
+                .find(|path| path.is_file())
+                .unwrap();
+            let pair = native_pty_system()
+                .openpty(PtySize {
+                    rows: 24,
+                    cols: 140,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                })
+                .unwrap();
+            let mut cmd = CommandBuilder::new(shell_path);
+            if shell == "zsh" {
+                cmd.args(["-df"]);
+            } else {
+                cmd.args(["--noprofile", "--norc", "-i"]);
+            }
+            cmd.env("HOME", dir.path());
+            cmd.env("ZDOTDIR", dir.path());
+            cmd.env("HISTFILE", "/dev/null");
+            cmd.env("INPUTRC", "/dev/null");
+            cmd.env("TERM", "xterm");
+            cmd.env("PS1", "CLISAGE-TEST> ");
+            cmd.env("PATH", dir.path());
+            cmd.env("CLISAGE_TEST_SCRIPT", script);
+            cmd.env("CLISAGE_TEST_MARKER", &marker);
+            let _child = KillOnDrop(pair.slave.spawn_command(cmd).unwrap());
+            drop(pair.slave);
+            let mut reader = pair.master.try_clone_reader().unwrap();
+            let mut writer = pair.master.take_writer().unwrap();
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                let mut buffer = [0; 4096];
+                loop {
+                    match reader.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(count) => {
+                            if tx.send(buffer[..count].to_vec()).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            });
+            read_until(&rx, "CLISAGE-TEST> ");
+            let editing_mode = match (shell, mode) {
+                ("zsh", "emacs") => "bindkey -e",
+                ("zsh", _) => "bindkey -v",
+                (_, "emacs") => "set -o emacs",
+                _ => "set -o vi",
+            };
+            writeln!(writer, "{editing_mode}; source \"$CLISAGE_TEST_SCRIPT\"").unwrap();
+            read_until(&rx, "CLISAGE-TEST> ");
+            writer.write_all(b"find large files\x1bg").unwrap();
+            read_until(&rx, "printf executed > \"$CLISAGE_TEST_MARKER\"");
+            assert!(
+                !marker.exists(),
+                "{shell} {mode} executed a suggestion without Enter"
+            );
+            // Discard the pending suggestion without accepting the line.
+            writer.write_all(b"\x15").unwrap();
+        }
+    }
 }

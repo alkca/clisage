@@ -19,7 +19,7 @@ _clisage_bash_widget() {
     # Assigning READLINE_LINE never accepts or executes the line.
     return 0
 }
-if [[ $- == *i* ]]; then
+if [[ $- == *i* && -t 0 ]]; then
     if (( BASH_VERSINFO[0] < 4 )); then
         printf 'Clisage Alt-G integration requires Bash 4+ or Zsh.\n' >&2
     else
