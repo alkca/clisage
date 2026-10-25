@@ -40,7 +40,7 @@ fn config_show_is_secret_free_and_does_not_create_files() {
         .unwrap();
     assert!(out.status.success());
     let text = String::from_utf8_lossy(&out.stdout);
-    assert!(text.contains("gpt-4.1-mini"));
+    assert!(text.contains("gpt-6-luna"));
     assert!(!text.contains("sentinel-secret"));
     assert!(!dir.path().join("clisage").exists());
 }

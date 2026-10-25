@@ -83,7 +83,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             config_version: Version,
-            model: "gpt-4.1-mini".into(),
+            model: "gpt-6-luna".into(),
             credential_backend: Backend::Pass,
         }
     }

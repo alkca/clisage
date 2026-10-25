@@ -109,14 +109,14 @@ without writing files. Create this file yourself to change the model:
 
 ```toml
 config_version = 1
-model = "gpt-4.1-mini"
+model = "gpt-6-luna"
 credential_backend = "pass"
 ```
 
 The provider and HTTPS endpoint are fixed to OpenAI in this first slice, binding
 stored keys to `api.openai.com`. Unknown config fields are rejected, including
 API keys and endpoint overrides. The [Chat Completions API](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
-streams responses. The [default model](https://developers.openai.com/api/docs/models/gpt-4.1-mini)
+streams responses. The [default model](https://developers.openai.com/api/docs/models/gpt-6-luna)
 is configurable; availability depends on your account.
 
 Your explicit prompt and any piped stdin are sent to OpenAI with `store: false`.

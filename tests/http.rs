@@ -69,6 +69,7 @@ fn transport_sends_bearer_scope_privacy_setting_and_pipeline_content() {
         serde_json::from_str(captured.split("\r\n\r\n").nth(1).unwrap()).unwrap();
     assert_eq!(body["store"], false);
     assert_eq!(body["stream"], true);
+    assert_eq!(body["model"], "gpt-6-luna");
     assert!(
         body["messages"][1]["content"]
             .as_str()
