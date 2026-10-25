@@ -11,6 +11,31 @@ from test_ci_tools import GIT_ENV, ROOT, run
 
 
 class ReleasePlan(unittest.TestCase):
+    def test_initial_release_keeps_manifest_version_and_creates_changelog(self):
+        planner = os.environ.get('RELEASE_PLZ') or shutil.which('release-plz')
+        self.assertIsNotNone(planner, 'install release-plz to verify release planning')
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary)
+            (path / 'src').mkdir()
+            (path / 'Cargo.toml').write_text('[package]\nname="release-fixture"\nversion="0.1.0"\nedition="2024"\npublish=false\n')
+            (path / 'src/main.rs').write_text('fn main() {}\n')
+            shutil.copy(ROOT / 'release-plz.toml', path / 'release-plz.toml')
+            run('cargo', 'generate-lockfile', '--offline', cwd=path)
+            run('git', 'init', '--initial-branch=main', cwd=path)
+            for key, value in [('user.name', 'Test Fixture'), ('user.email', 'fixture@example.invalid'), ('commit.gpgsign', 'false')]:
+                run('git', 'config', key, value, cwd=path)
+            run('git', 'add', '.', cwd=path)
+            run('git', 'commit', '-m', 'feat: initial fixture', cwd=path)
+            environment = dict(GIT_ENV, CARGO_NET_OFFLINE='true')
+            for key in ['GITHUB_TOKEN', 'GH_TOKEN', 'GIT_TOKEN', 'GIT_CLIFF_CONFIG']:
+                environment.pop(key, None)
+            result = subprocess.run([planner, 'update', '--repo-url', 'https://github.com/fixture/release-fixture'],
+                cwd=path, env=environment, text=True, capture_output=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(tomllib.loads((path / 'Cargo.toml').read_text())['package']['version'], '0.1.0')
+            self.assertIn('0.1.0', (path / 'CHANGELOG.md').read_text())
+            self.assertEqual(run('git', 'tag', '--list', cwd=path).stdout, '')
+
     def test_semver_changelog_and_lockfile_updates_without_releases(self):
         planner = os.environ.get('RELEASE_PLZ') or shutil.which('release-plz')
         self.assertIsNotNone(planner, 'install release-plz to verify release planning')

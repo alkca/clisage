@@ -185,3 +185,10 @@ version. Bot-created release PRs receive explicit CI dispatches because GitHub
 suppresses automatic PR events made with GITHUB_TOKEN; no personal token is
 required. Existing bootstrap commits are retained unchanged. Future squash PR
 titles supply semantic version information.
+
+To activate release PR creation, a maintainer must explicitly enable Settings →
+Actions → General → **Allow GitHub Actions to create and approve pull requests**.
+GitHub bundles those capabilities into one setting, so enabling it requires
+separate approval. Default workflow token permissions stay read-only; only the
+trusted main-branch release-planning job receives the write permissions it needs.
+The workflow never approves reviews or merges PRs.

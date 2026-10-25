@@ -19,7 +19,7 @@ def prepare(source: Path, tap: Path, revision: str) -> None:
     formula = (source / 'Formula/clisage.rb').read_text()
     # as_uri percent-encodes quotes and interpolation characters before Ruby quoting.
     replacement = (f'  head {json.dumps(source.as_uri())},\n'
-                   f'       using: :git,\n'
+                   f'       using:    :git,\n'
                    f'       revision: "{revision}"')
     formula, count = re.subn(r'^  head .+$', lambda _: replacement, formula, flags=re.MULTILINE)
     if count != 1:
