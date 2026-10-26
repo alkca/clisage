@@ -32,6 +32,7 @@ fn streaming_decodes_chunks_and_requires_completion() {
     let input = concat!(
         "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\r\n\r\n",
         "data: {\"choices\":[{\"delta\":{\"content\":\" world\"}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
         "data: [DONE]\n\n"
     );
     let mut output = Vec::new();
@@ -94,4 +95,79 @@ fn command_only_output_rejects_control_sequences_multiline_and_markdown() {
     ] {
         assert!(command_suggestion(invalid).is_err(), "accepted {invalid:?}");
     }
+}
+
+#[test]
+fn streaming_requires_a_successful_nonempty_completion() {
+    for reason in ["length", "content_filter", "tool_calls", "unknown"] {
+        let input = format!(
+            "data: {{\"choices\":[{{\"delta\":{{\"content\":\"find . -delete\"}},\"finish_reason\":\"{reason}\"}}]}}\n\ndata: [DONE]\n\n"
+        );
+        assert!(
+            stream_response(input.as_bytes(), &mut Vec::new()).is_err(),
+            "accepted {reason}"
+        );
+    }
+    for input in [
+        "data: [DONE]\n\n",
+        "data: {}\n\ndata: [DONE]\n\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\ndata: [DONE]\n\n",
+        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+        "data: {\"choices\":[{\"delta\":{\"refusal\":\"fake refusal\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+    ] {
+        assert!(stream_response(input.as_bytes(), &mut Vec::new()).is_err());
+    }
+}
+
+#[test]
+fn streaming_bounds_lines_events_and_total_output() {
+    let oversized_line = format!("data: {}", "x".repeat(65_537));
+    assert!(
+        stream_response(oversized_line.as_bytes(), &mut Vec::new())
+            .unwrap_err()
+            .to_string()
+            .contains("limit")
+    );
+    let oversized_event = format!("{}\n", "data: x\n".repeat(40_000));
+    assert!(
+        stream_response(oversized_event.as_bytes(), &mut Vec::new())
+            .unwrap_err()
+            .to_string()
+            .contains("limit")
+    );
+    let chunk = format!(
+        "data: {{\"choices\":[{{\"delta\":{{\"content\":\"{}\"}}}}]}}\n\n",
+        "a".repeat(32_768)
+    );
+    let mut output = Vec::new();
+    assert!(
+        stream_response(chunk.repeat(33).as_bytes(), &mut output)
+            .unwrap_err()
+            .to_string()
+            .contains("limit")
+    );
+    assert!(output.len() <= 1_048_576);
+}
+
+#[test]
+fn successful_completion_allows_usage_but_rejects_additional_content() {
+    let completed =
+        "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\n";
+    let usage = format!(
+        "{completed}data: {{\"choices\":[],\"usage\":{{\"total_tokens\":1}}}}\n\ndata: [DONE]\n\n"
+    );
+    let mut output = Vec::new();
+    stream_response(usage.as_bytes(), &mut output).unwrap();
+    assert_eq!(output, b"answer");
+    let extra = format!(
+        "{completed}data: {{\"choices\":[{{\"delta\":{{\"content\":\"unexpected\"}}}}]}}\n\ndata: [DONE]\n\n"
+    );
+    assert!(stream_response(extra.as_bytes(), &mut Vec::new()).is_err());
+}
+
+#[test]
+fn keepalives_cannot_bypass_the_total_stream_limit() {
+    let stream = ": keepalive\n\n".repeat(700_000);
+    let error = stream_response(stream.as_bytes(), &mut Vec::new()).unwrap_err();
+    assert!(error.to_string().contains("size limit"));
 }

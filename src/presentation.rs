@@ -1,5 +1,55 @@
 use crate::syntax::highlight;
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+use std::io::{self, Write};
+
+/// Filter terminal controls without changing redirected output. Retains an
+/// incomplete UTF-8 code point across writes (including across flushes).
+pub struct TerminalOutput<'a> {
+    output: &'a mut dyn Write,
+    pending: Vec<u8>,
+    enabled: bool,
+}
+
+impl<'a> TerminalOutput<'a> {
+    pub fn new(output: &'a mut dyn Write) -> Self {
+        Self::with_policy(output, true)
+    }
+
+    pub fn with_policy(output: &'a mut dyn Write, enabled: bool) -> Self {
+        Self {
+            output,
+            pending: Vec::new(),
+            enabled,
+        }
+    }
+}
+
+impl Write for TerminalOutput<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if !self.enabled {
+            return self.output.write(bytes);
+        }
+        self.pending.extend_from_slice(bytes);
+        let valid = match std::str::from_utf8(&self.pending) {
+            Ok(text) => text.len(),
+            Err(error) if error.error_len().is_none() => error.valid_up_to(),
+            Err(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid terminal text",
+                ));
+            }
+        };
+        let text = std::str::from_utf8(&self.pending[..valid]).expect("validated UTF-8");
+        self.output.write_all(terminal_text(text).as_bytes())?;
+        self.pending.drain(..valid);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.output.flush()
+    }
+}
 
 pub fn should_render_markdown(
     terminal: bool,

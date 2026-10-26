@@ -1,0 +1,57 @@
+"""Prepare a temporary stable formula for an existing, matching release tag.
+
+This never creates a tag, edits the source formula, or publishes a bottle.
+"""
+import argparse
+from pathlib import Path
+import re
+import subprocess
+import tomllib
+
+
+def git(source: Path, *arguments: str) -> str:
+    return subprocess.check_output(['git', '-C', str(source), *arguments], text=True, stderr=subprocess.DEVNULL).strip()
+
+
+def prepare(source: Path, tap: Path, tag: str) -> None:
+    source = source.resolve(strict=True)
+    tap = tap.resolve(strict=True)
+    if source == tap or source in tap.parents or tap in source.parents:
+        raise ValueError('bottle tap must be separate from the source checkout')
+    if not re.fullmatch(r'v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', tag):
+        raise ValueError('expected an existing stable vMAJOR.MINOR.PATCH tag')
+    version = tag[1:]
+    if tomllib.loads((source / 'Cargo.toml').read_text())['package']['version'] != version:
+        raise ValueError('release tag differs from the manifest version')
+    try:
+        revision = git(source, 'rev-parse', '--verify', f'refs/tags/{tag}^{{commit}}')
+    except subprocess.CalledProcessError:
+        raise ValueError('release tag does not exist') from None
+    if git(source, 'rev-parse', 'HEAD') != revision or git(source, 'status', '--porcelain'):
+        raise ValueError('bottles require a clean checkout at the requested release tag')
+    formula = (source / 'Formula/clisage.rb').read_text()
+    # Immutable Git source preserves build identity and avoids embedding local paths.
+    stable = (f'  url "https://github.com/alkca/clisage.git",\n'
+              f'      tag:      "{tag}",\n'
+              f'      revision: "{revision}"\n'
+              f'  version "{version}"\n')
+    if len(re.findall(r'^  head ', formula, flags=re.MULTILINE)) != 1:
+        raise ValueError('expected exactly one formula head declaration')
+    formula, count = re.subn(r'(?=^  license )', lambda _: stable, formula, flags=re.MULTILINE)
+    if count != 1:
+        raise ValueError('expected exactly one formula license declaration')
+    destination = tap / 'Formula/clisage.rb'
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(formula)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('source', type=Path)
+    parser.add_argument('tap', type=Path)
+    parser.add_argument('tag')
+    args = parser.parse_args()
+    try:
+        prepare(args.source, args.tap, args.tag)
+    except (ValueError, OSError, KeyError, subprocess.SubprocessError):
+        raise SystemExit('Cannot prepare bottle formula; use a clean matching stable tag and a separate tap') from None

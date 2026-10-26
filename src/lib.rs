@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    io::{self, BufRead, Write},
+    io::{self, BufRead, Read, Write},
     path::Path,
 };
 
@@ -74,10 +74,12 @@ impl Clone for Version {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "kebab-case")]
 pub enum Backend {
     Pass,
+    Keychain,
+    SecretService,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -98,13 +100,14 @@ pub enum Mode {
 }
 
 mod context;
+pub mod credentials;
 mod editor;
 mod presentation;
 mod progress;
 mod syntax;
 pub use context::RuntimeContext;
 pub use editor::{edit_prompt, resolve_editor};
-pub use presentation::{render_markdown, should_render_markdown};
+pub use presentation::{TerminalOutput, render_markdown, should_render_markdown};
 pub use progress::{ThinkingIndicator, ThinkingOutput};
 
 pub fn build_messages(mode: Mode, prompt: &str, input: &str) -> Result<Vec<Value>> {
@@ -160,33 +163,99 @@ pub fn command_suggestion(text: &str) -> Result<&str> {
     Ok(command)
 }
 
+/// Limits apply before allocation or output, including in streaming mode.
+pub const MAX_EVENT_BYTES: usize = 65_536;
+pub const MAX_RESPONSE_BYTES: usize = 1_048_576;
+const MAX_STREAM_BYTES: usize = 8 * MAX_RESPONSE_BYTES;
+
 /// Decode Chat Completions SSE. Provider payloads never appear in errors.
-pub fn stream_response(reader: impl BufRead, output: &mut dyn Write) -> Result<()> {
+/// Success requires nonempty content, a `stop` finish reason, and `[DONE]`.
+pub fn stream_response(mut reader: impl BufRead, output: &mut dyn Write) -> Result<()> {
     let mut data = String::new();
-    for line in reader.lines() {
-        let line = line.map_err(|_| "provider stream interrupted")?;
+    let mut line = Vec::new();
+    let mut response_bytes = 0;
+    let mut stream_bytes = 0;
+    let mut finished = false;
+    let mut has_text = false;
+    loop {
+        line.clear();
+        let count = reader
+            .by_ref()
+            .take((MAX_EVENT_BYTES + 1) as u64)
+            .read_until(b'\n', &mut line)
+            .map_err(|_| "provider stream interrupted; output may be partial")?;
+        if count == 0 {
+            break;
+        }
+        stream_bytes += count;
+        if count > MAX_EVENT_BYTES || stream_bytes > MAX_STREAM_BYTES {
+            return Err("provider stream exceeds size limit; narrow the request".into());
+        }
+        let line = std::str::from_utf8(&line).map_err(|_| "invalid provider stream encoding")?;
+        let line = line.strip_suffix('\n').unwrap_or(line);
+        let line = line.strip_suffix('\r').unwrap_or(line);
         if line.is_empty() {
             if data.is_empty() {
                 continue;
             }
             if data.trim() == "[DONE]" {
-                return Ok(());
+                return if finished && has_text {
+                    Ok(())
+                } else {
+                    Err("provider response is incomplete or empty; output may be partial".into())
+                };
             }
             let event: Value =
                 serde_json::from_str(&data).map_err(|_| "invalid provider stream")?;
             if event.get("error").is_some() {
                 return Err("provider reported a streaming error".into());
             }
-            if let Some(content) = event["choices"][0]["delta"]["content"].as_str() {
+            let choices = event["choices"]
+                .as_array()
+                .ok_or("invalid provider stream")?;
+            // A final usage event has no choices and does not change completion state.
+            if choices.is_empty() && event.get("usage").is_some() {
+                data.clear();
+                continue;
+            }
+            if choices.len() != 1 || finished {
+                return Err("invalid provider completion sequence".into());
+            }
+            let choice = &choices[0];
+            let delta = choice["delta"]
+                .as_object()
+                .ok_or("invalid provider stream")?;
+            if delta.get("refusal").is_some_and(|v| !v.is_null()) {
+                return Err("provider declined the request".into());
+            }
+            if let Some(reason) = choice.get("finish_reason").filter(|v| !v.is_null()) {
+                if reason.as_str() != Some("stop") {
+                    return Err("provider response did not complete successfully; output may be partial; narrow the request".into());
+                }
+                finished = true;
+            }
+            if let Some(value) = delta.get("content").filter(|v| !v.is_null()) {
+                let content = value.as_str().ok_or("invalid provider content")?;
+                response_bytes += content.len();
+                if response_bytes > MAX_RESPONSE_BYTES {
+                    return Err(
+                        "provider response exceeds 1 MiB size limit; narrow the request".into(),
+                    );
+                }
+                has_text |= !content.trim().is_empty();
                 output.write_all(content.as_bytes())?;
                 output.flush()?;
             }
             data.clear();
         } else if let Some(value) = line.strip_prefix("data:") {
+            let value = value.strip_prefix(' ').unwrap_or(value);
+            if data.len() + value.len() + 1 > MAX_EVENT_BYTES {
+                return Err("provider event exceeds size limit".into());
+            }
             if !data.is_empty() {
                 data.push('\n');
             }
-            data.push_str(value.trim_start());
+            data.push_str(value);
         }
     }
     Err("provider stream ended before completion; output may be partial".into())
