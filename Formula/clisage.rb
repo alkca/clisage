@@ -13,6 +13,7 @@ class Clisage < Formula
 
   def install
     system "cargo", "install", *std_cargo_args
+    generate_completions_from_executable(bin/"clisage", "completions")
   end
 
   def caveats
@@ -25,7 +26,7 @@ class Clisage < Formula
       To enable Alt-G in Zsh, add to ~/.zshrc:
         eval "$(clisage integration zsh)"
 
-      This HEAD formula builds main from source.
+      Development installs use the HEAD formula and build main from source.
     EOS
   end
 
@@ -36,6 +37,9 @@ class Clisage < Formula
     assert_match 'credential_backend = "pass"', shell_output("#{bin}/clisage config show")
     assert_match "_clisage_zsh_widget", shell_output("#{bin}/clisage integration zsh")
     assert_match "_clisage_bash_widget", shell_output("#{bin}/clisage integration bash")
+    assert_path_exists bash_completion/"clisage"
+    assert_path_exists zsh_completion/"_clisage"
+    assert_path_exists fish_completion/"clisage.fish"
     assert_match "provide a prompt", shell_output("#{bin}/clisage </dev/null 2>&1", 1)
   end
 end

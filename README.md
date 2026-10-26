@@ -43,9 +43,12 @@ git diff | clisage 'Write a commit message'
 clisage auth status
 clisage config show
 clisage auth logout
+clisage doctor
+clisage completions zsh
+printf 'ls -l\n' | clisage explain
 ```
 
-Login reads a hidden API key from the terminal, stores it at
+By default, login reads a hidden API key from the terminal, stores it at
 `clisage/openai/api.openai.com/default` in `pass`, then reads it back to verify
 storage. Login checks recipient configuration before requesting an API key.
 Both a root `.gpg-id` and Clisage-scoped recipient configuration are supported;
@@ -60,6 +63,62 @@ precedence over `pass` and is never persisted. No API-key command-line flag exis
 `auth status` checks local availability, not whether OpenAI accepts the key.
 `auth logout` removes the stored key; unset the environment variable separately.
 
+## Native credential stores and setup checks
+
+`pass` remains the default. You can instead select macOS Keychain or Linux
+Secret Service in `config.toml`:
+
+```toml
+config_version = 1
+model = "gpt-6-luna"
+credential_backend = "keychain" # macOS; use "secret-service" on Linux
+```
+
+Then run `clisage auth login`. Native login reads a hidden key, writes it through
+the platform API, and reads it back to verify storage. The native entry uses
+service `clisage/openai/api.openai.com` and account `default`. Linux needs a
+running desktop D-Bus session and an unlocked Secret Service provider, such as
+GNOME Keyring or a compatible KDE Wallet. macOS may request Keychain access.
+There is no plaintext fallback and keys are never passed as process arguments.
+
+Use `clisage auth status --backend keychain` or
+`clisage auth logout --backend secret-service` to select a store explicitly.
+`--backend` affects only that auth command; change `credential_backend` in the
+config to select the store for ordinary requests. Existing keys are not moved
+or deleted when you change backends. After logging into the new store and
+checking its status, remove the old entry explicitly if desired.
+
+Auth commands remain available when model configuration is broken. If the
+configuration cannot be parsed, they announce that they are using `pass`;
+`auth --backend` overrides that fallback. Native credential reads and removals
+require interactive stderr so unattended jobs cannot open unlock dialogs.
+Use `CLISAGE_API_KEY` for automation; it takes precedence over every backend.
+
+Run `clisage doctor` to check config syntax, the selected backend's local
+prerequisites, pass recipient metadata, and shell context. It does not read
+stored keys, unlock stores, or contact OpenAI. Exit status 1 indicates a setup
+problem; availability and provider validity still need `auth status` and an
+actual request, respectively. Invalid TOML diagnostics include a line and column
+and recovery guidance without printing config values. An empty
+`XDG_CONFIG_HOME` falls back to `~/.config`.
+
+## Shell completions
+
+Homebrew installs Bash, Zsh, and Fish completions automatically. For a Cargo
+installation, generate the matching script:
+
+```sh
+clisage completions bash > clisage.bash
+clisage completions zsh > _clisage
+clisage completions fish > clisage.fish
+```
+
+Source `clisage.bash` in Bash, place `_clisage` in a directory on Zsh's `$fpath`
+before running `compinit`, or place `clisage.fish` in
+`~/.config/fish/completions/`. Completion generation needs no credentials or
+valid config. Fish completions cover the CLI; the Alt-G widget supports Bash
+and Zsh.
+
 ## Terminal output and editor prompts
 
 Clisage renders Markdown in interactive terminals, including headings, emphasis,
@@ -67,7 +126,9 @@ lists, links, tables, and syntax colors for fenced code blocks with a language
 label. Highlighting supports shell/Bash, Rust, Python, JavaScript, and JSON, plus
 common aliases such as `sh`, `rs`, `py`, and `js`. Other languages remain readable
 as plain code. Formatted responses appear after generation completes. Use `--no-markdown`
-to see the original response as it streams. Redirected output stays unformatted
+to see the unformatted response as it streams. Terminal output filters provider-supplied
+control characters independently of Markdown, including with `NO_COLOR`. Redirected output keeps
+the original bytes and stays unformatted
 and streaming by default; `--markdown` explicitly enables formatting there.
 Nonempty `NO_COLOR` disables formatting, and `TERM=dumb` disables automatic
 formatting. `shell --command-only` always returns a plain command.
@@ -78,7 +139,8 @@ An optional prompt argument pre-fills the temporary file;
 this also works with `shell` and `explain`. Editor commands may contain quoted
 arguments, such as `EDITOR='code --wait'`; Clisage invokes the editor directly
 without shell expansion. Save and close the editor to submit. An empty file or
-unsuccessful editor exit cancels the request. Piped input cannot be combined with
+unsuccessful editor exit cancels the request. `shell` and `explain` can also take their entire request from piped stdin without
+a prompt argument. Piped input cannot be combined with
 `--editor`. The temporary prompt file is private and removed when Clisage exits
 normally; editor-created backups follow your editor settings.
 
@@ -150,13 +212,20 @@ model = "gpt-6-luna"
 credential_backend = "pass"
 ```
 
-The provider and HTTPS endpoint are fixed to OpenAI in this first slice, binding
+The provider and HTTPS endpoint are fixed to OpenAI, binding
 stored keys to `api.openai.com`. Unknown config fields are rejected, including
 API keys and endpoint overrides. The [Chat Completions API](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
 streams responses. The [default model](https://developers.openai.com/api/docs/models/gpt-6-luna)
 is configurable; availability depends on your account.
 GPT-6 Luna uses reasoning effort `none` for quick shell responses. Other model
 overrides use their provider defaults.
+
+Piped input and editor prompts are limited to 1 MiB. Provider responses are
+limited to 1 MiB of text, with 64 KiB per SSE line/event and 8 MiB of total stream
+data. Incomplete, token-limited, filtered, refused, and empty responses fail with
+an error. Unformatted streams may already have emitted partial text; formatted
+responses and command-only suggestions are withheld until successful completion.
+Command-only suggestions additionally have a 16 KiB limit.
 
 Your explicit prompt and any piped stdin are sent to OpenAI with `store: false`.
 Requests also include the OS name, Linux distribution name when available from
@@ -167,7 +236,8 @@ back to portable POSIX suggestions.
 Provider retention policies still apply. Clisage has no telemetry, saved chats,
 directory scanning, or shell history collection. Results go to stdout; diagnostics
 go to stderr. Shell mode **only displays suggestions**. Review them before use.
-Credentials are protected at rest by GPG, not against all same-user access.
+Credentials are protected at rest by the selected encrypted store, not against
+all same-user access.
 Secrets are redacted in diagnostics, but transport libraries may make memory
 copies. A broken pipe exits successfully; other runtime errors exit 1 and invalid
 CLI usage exits 2. Requests time out after 120 seconds and are not retried.
@@ -175,15 +245,20 @@ CLI usage exits 2. Requests time out after 120 seconds and are not retried.
 ## Development
 
 ```sh
-cargo test --locked # Requires Zsh and Bash for integration tests.
+cargo test --locked # Requires Zsh/Bash and pass/GPG; Linux also needs dbus and gnome-keyring.
 cargo fmt --check
 cargo clippy --all-targets --locked -- -D warnings
 ```
 
 Tests use fake credentials and local mock HTTP, without real API keys or paid
-requests. CI runs on Linux and macOS. Native Apple Keychain / Linux Secret Service,
-profiles, completions, signed release artifacts, and prebuilt Homebrew bottles are
-follow-up work. No release or merge is performed by the bootstrap work.
+requests. CI runs on Linux and macOS. Linux native-store tests start a private
+D-Bus session and disposable GNOME keyring; native error handling is also tested
+with isolated in-memory stores. Tests do not use your normal credential store.
+On Debian/Ubuntu, install `zsh pass gnupg dbus gnome-keyring` before running them.
+The tooling suite uses `uv run --no-project --offline python -m unittest discover
+-s tests/tooling -v` and requires the repository-pinned release-plz binary on PATH.
+Profiles remain follow-up work. Distribution preparation is described below;
+no release, merge, or bottle publication is automatic.
 
 License: MIT OR Apache-2.0.
 
@@ -259,3 +334,48 @@ GitHub bundles those capabilities into one setting, so enabling it requires
 separate approval. Default workflow token permissions stay read-only; only the
 trusted main-branch release-planning job receives the write permissions it needs.
 The workflow never approves reviews or merges PRs.
+
+## Distribution preparation
+
+The **Distribution artifacts** workflow runs only when manually dispatched on
+`main`. It tests and builds native x86-64 and ARM64 binaries on Ubuntu 24.04 and
+macOS 15, packages each binary with licenses, this README, and Bash/Zsh/Fish
+completions, and uploads archives and SHA-256 checksums as workflow artifacts
+(retained for 14 days). macOS builds target macOS 13 or newer; Linux binaries use
+the Ubuntu 24.04 glibc baseline. Older Linux systems can build from source.
+Archives have normalized timestamps, ownership, and permissions; packaging the
+same binary and documentation produces the same archive bytes.
+
+The workflow signs archive provenance using GitHub's Sigstore-backed artifact
+attestations and includes an offline verification bundle. After downloading an
+archive and its companion files, verify them before extracting:
+
+```sh
+shasum -a 256 -c clisage-VERSION-TARGET.tar.gz.sha256
+gh attestation verify clisage-VERSION-TARGET.tar.gz --repo alkca/clisage \
+  --signer-workflow alkca/clisage/.github/workflows/distribution.yml --source-ref refs/heads/main
+# Alternatively, use the included bundle:
+gh attestation verify clisage-VERSION-TARGET.tar.gz --repo alkca/clisage \
+  --signer-workflow alkca/clisage/.github/workflows/distribution.yml --source-ref refs/heads/main \
+  --bundle provenance-TARGET.sigstore.json
+```
+
+This signs the archive's provenance; Apple Developer ID signing and notarization
+are not configured. The workflow does not create tags or GitHub Releases, push
+packages, or publish download URLs. It uses read-only repository contents access
+and grants signing permissions only to the manual build job.
+
+The **Prepare Homebrew bottles** workflow is also manual and runs only on an
+existing stable release tag. After a maintainer separately authorizes and creates
+a matching tag, dispatch `bottles.yml` at that tag. It requires a clean checkout
+whose manifest version matches the tag, generates a temporary stable formula
+pinned to the public Git commit, builds and tests bottles on the same four
+platforms, then reinstalls and retests each local bottle. Bottle archives, JSON
+metadata, the source formula, and signed provenance are saved as workflow
+artifacts. The public HEAD formula and the SHA-pinned Homebrew tests on every PR
+remain in place.
+
+Publishing bottles requires a separate reviewed change with the final hosting
+URL and platform checksums in the stable formula. No bottle workflow creates a
+tag, publishes a release, or uploads to a package registry. There are no public
+prebuilt downloads until that explicitly authorized publishing step occurs.

@@ -50,7 +50,7 @@ fn server(status: &str, body: &str) -> (String, thread::JoinHandle<String>) {
 fn transport_sends_bearer_scope_privacy_setting_and_pipeline_content() {
     let (url, handle) = server(
         "200 OK",
-        "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\ndata: [DONE]\n\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
     );
     let mut output = Vec::new();
     request(
@@ -81,7 +81,10 @@ fn transport_sends_bearer_scope_privacy_setting_and_pipeline_content() {
 
 #[test]
 fn model_override_does_not_inherit_luna_specific_parameters() {
-    let (url, handle) = server("200 OK", "data: [DONE]\n\n");
+    let (url, handle) = server(
+        "200 OK",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+    );
     let config = Config {
         model: "test-custom-model".into(),
         ..Config::default()

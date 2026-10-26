@@ -1,0 +1,75 @@
+name: Prepare Homebrew bottles
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bottle:
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Validate release tag syntax
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: '[[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
+        with:
+          version: '0.13.5'
+      - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04
+        with:
+          stable: true
+      - name: Prepare a stable formula pinned to the release commit
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          brew tap clisage/release "$GITHUB_WORKSPACE"
+          uv run --no-project --offline python scripts/prepare_bottle.py \
+            "$GITHUB_WORKSPACE" "$(brew --repository clisage/release)" "$RELEASE_TAG"
+      - name: Build and test the bottle
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          brew install --build-bottle --yes clisage/release/clisage
+          [[ "$(clisage --version)" == "clisage ${RELEASE_TAG#v}" ]]
+          brew test clisage/release/clisage
+          brew style "$(brew --repository clisage/release)/Formula/clisage.rb"
+          mkdir dist
+          cd dist
+          brew bottle --json clisage/release/clisage
+          brew reinstall ./*.bottle.*.tar.gz
+          brew test clisage/release/clisage
+      - name: Sign bottle provenance
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/*.bottle.*.tar.gz
+          create-storage-record: false
+      - name: Include verification material and generated formula
+        shell: bash
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          cp "$BUNDLE" dist/provenance.sigstore.json
+          cp "$(brew --repository clisage/release)/Formula/clisage.rb" dist/clisage.rb
+      # Storage in workflow artifacts only; no tag, release, or package publication.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: clisage-bottle-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14

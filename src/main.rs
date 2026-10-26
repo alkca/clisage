@@ -1,5 +1,6 @@
-use clap::{Parser, Subcommand, ValueEnum};
-use clisage::{CREDENTIAL_ID, Config, Mode, Result};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clisage::credentials::{NativeStore, check_backend, validate_key};
+use clisage::{Backend, CREDENTIAL_ID, Config, Mode, Result};
 use secrecy::{ExposeSecret, SecretString};
 use std::{
     io::{self, IsTerminal, Read, Write},
@@ -35,19 +36,18 @@ struct Cli {
 enum Action {
     /// Suggest a shell command without executing it.
     Shell {
-        #[arg(required_unless_present = "editor")]
         prompt: Option<String>,
         /// Return one plain command after completion, for shell integration.
         #[arg(long)]
         command_only: bool,
     },
     /// Explain a shell command without executing it.
-    Explain {
-        #[arg(required_unless_present = "editor")]
-        prompt: Option<String>,
-    },
+    Explain { prompt: Option<String> },
     /// Manage encrypted credentials.
     Auth {
+        /// Select a store even if configuration is invalid.
+        #[arg(long, value_enum, global = true)]
+        backend: Option<Backend>,
         #[command(subcommand)]
         action: Auth,
     },
@@ -55,6 +55,13 @@ enum Action {
     Config {
         #[command(subcommand)]
         action: ConfigAction,
+    },
+    /// Check local configuration and dependencies without reading secrets.
+    Doctor,
+    /// Print a shell completion script.
+    Completions {
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
     },
     /// Print the opt-in Alt-G integration script for your shell.
     Integration {
@@ -80,6 +87,7 @@ enum ConfigAction {
 
 fn config_path() -> Result<PathBuf> {
     let root = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|path| !path.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
         .ok_or("set HOME or XDG_CONFIG_HOME to locate configuration")?;
@@ -90,16 +98,16 @@ fn config_path() -> Result<PathBuf> {
 }
 fn load_config() -> Result<Config> {
     match std::fs::read_to_string(config_path()?) {
-        Ok(text) => toml::from_str(&text).map_err(|_| "invalid config: expected version 1, model, and credential_backend = 'pass'; no secret or endpoint fields allowed".into()),
+        Ok(text) => toml::from_str(&text).map_err(|error: toml::de::Error| {
+            let start = error.span().map(|span| span.start).unwrap_or(0).min(text.len());
+            let prefix = &text.as_bytes()[..start];
+            let line = prefix.iter().filter(|&&byte| byte == b'\n').count() + 1;
+            let column = prefix.iter().rposition(|&byte| byte == b'\n').map_or(start + 1, |pos| start - pos);
+            format!("invalid config.toml at line {line}, column {column}; expected config_version = 1, a model, and credential_backend = 'pass', 'keychain', or 'secret-service'; secret and endpoint fields are forbidden. Repair or rename the config file; run clisage doctor for setup checks").into()
+        }),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Config::default()),
-        Err(_) => Err("unable to read configuration".into()),
+        Err(_) => Err("unable to read config.toml; check file permissions or rename the file; run clisage doctor".into()),
     }
-}
-fn validate_key(key: String) -> Result<SecretString> {
-    if key.trim().is_empty() || key.chars().any(char::is_control) {
-        return Err("credential is empty or invalid; run clisage auth login".into());
-    }
-    Ok(SecretString::from(key))
 }
 fn env_key() -> Result<Option<SecretString>> {
     match std::env::var("CLISAGE_API_KEY") {
@@ -124,17 +132,52 @@ fn pass_read() -> Result<SecretString> {
     let key = String::from_utf8(out.stdout).map_err(|_| "stored credential is invalid")?;
     validate_key(key.trim_end_matches(['\n', '\r']).to_owned())
 }
-fn login() -> Result<SecretString> {
-    if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
-        return Err("login requires an interactive terminal; use CLISAGE_API_KEY through your automation secret manager".into());
-    }
-    let store = std::env::var_os("PASSWORD_STORE_DIR")
+fn pass_store_path() -> Result<PathBuf> {
+    std::env::var_os("PASSWORD_STORE_DIR")
         .filter(|path| !path.is_empty())
         .map(PathBuf::from)
         .or_else(|| {
             std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".password-store"))
         })
-        .ok_or("set HOME or PASSWORD_STORE_DIR to locate the pass store")?;
+        .ok_or_else(|| "set HOME or PASSWORD_STORE_DIR to locate the pass store".into())
+}
+
+fn read_credential(backend: Backend) -> Result<SecretString> {
+    if backend == Backend::Pass {
+        return pass_read();
+    }
+    check_backend(backend)?;
+    if !io::stderr().is_terminal() {
+        return Err("native credential access requires an interactive terminal; supply CLISAGE_API_KEY for automation".into());
+    }
+    NativeStore::new(backend)?.read()
+}
+
+fn login(backend: Backend) -> Result<SecretString> {
+    if backend == Backend::Pass {
+        return pass_login();
+    }
+    check_backend(backend)?;
+    if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
+        return Err("login requires an interactive terminal; use CLISAGE_API_KEY through your automation secret manager".into());
+    }
+    let store = NativeStore::new(backend)?;
+    let key = validate_key(
+        rpassword::prompt_password("OpenAI API key: ")
+            .map_err(|_| "unable to read key from terminal")?,
+    )?;
+    store.store(&key)?;
+    eprintln!(
+        "Credential stored and read back successfully. Provider validity has not been checked."
+    );
+    Ok(key)
+}
+
+fn pass_login() -> Result<SecretString> {
+    if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
+        return Err("login requires an interactive terminal; use CLISAGE_API_KEY through your automation secret manager".into());
+    }
+    let store = pass_store_path()?;
     let recipient_override =
         std::env::var_os("PASSWORD_STORE_KEY").is_some_and(|key| !key.is_empty());
     clisage::check_pass_store(&store, recipient_override)?;
@@ -182,25 +225,230 @@ fn login() -> Result<SecretString> {
     );
     Ok(key)
 }
+fn auth(action: Auth, backend: Backend) -> Result<()> {
+    match action {
+        Auth::Login => {
+            login(backend)?;
+        }
+        Auth::Status => {
+            if env_key()?.is_some() {
+                writeln!(
+                    io::stdout().lock(),
+                    "Credential available from environment (not validated with provider)."
+                )?;
+            } else {
+                read_credential(backend)?;
+                writeln!(
+                    io::stdout().lock(),
+                    "Credential available from {backend:?} (not validated with provider)."
+                )?;
+            }
+        }
+        Auth::Logout => {
+            if backend != Backend::Pass {
+                check_backend(backend)?;
+                if !io::stderr().is_terminal() {
+                    return Err("native credential removal requires an interactive terminal".into());
+                }
+                NativeStore::new(backend)?.remove()?;
+            } else {
+                let status = Command::new("pass")
+                    .args(["rm", "--force", CREDENTIAL_ID])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .map_err(|_| "pass unavailable; unable to remove stored credential")?;
+                if !status.success() {
+                    return Err("unable to remove credential; check pass store".into());
+                }
+            }
+            writeln!(
+                io::stdout().lock(),
+                "Stored credential removed. Unset CLISAGE_API_KEY separately if configured."
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// This command never reads stored credentials, unlocks a store, or uses HTTP.
+fn doctor() -> Result<()> {
+    let mut output = io::stdout().lock();
+    let mut healthy = true;
+    let backend = match load_config() {
+        Ok(config) if !config.model.trim().is_empty() => {
+            writeln!(
+                output,
+                "Configuration: OK (config.toml or built-in defaults)"
+            )?;
+            config.credential_backend
+        }
+        Ok(_) => {
+            writeln!(
+                output,
+                "Configuration: ERROR (model must not be empty; repair config.toml)"
+            )?;
+            healthy = false;
+            Backend::Pass
+        }
+        Err(error) => {
+            writeln!(output, "Configuration: ERROR ({error})")?;
+            healthy = false;
+            Backend::Pass
+        }
+    };
+    match env_key() {
+        Ok(Some(_)) => writeln!(
+            output,
+            "Credential: environment (provider validity not checked)"
+        )?,
+        Ok(None) => writeln!(
+            output,
+            "Credential: stored value not read; use clisage auth status to check availability"
+        )?,
+        Err(_) => {
+            writeln!(
+                output,
+                "Credential: ERROR (CLISAGE_API_KEY is invalid; unset it or replace it)"
+            )?;
+            healthy = false;
+        }
+    }
+    writeln!(output, "Backend: {backend:?}")?;
+    if backend == Backend::Pass {
+        for program in ["pass", "gpg"] {
+            let available = Command::new(program)
+                .arg("--version")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success());
+            writeln!(
+                output,
+                "{program}: {}",
+                if available {
+                    "OK"
+                } else {
+                    "unavailable; install pass/GPG"
+                }
+            )?;
+            healthy &= available;
+        }
+        let initialized = pass_store_path().and_then(|path| {
+            clisage::check_pass_store(
+                &path,
+                std::env::var_os("PASSWORD_STORE_KEY").is_some_and(|key| !key.is_empty()),
+            )
+        });
+        match initialized {
+            Ok(()) => writeln!(
+                output,
+                "Pass recipients: OK (encryption keys and pinentry not tested)"
+            )?,
+            Err(error) => {
+                writeln!(output, "Pass recipients: ERROR ({error})")?;
+                healthy = false;
+            }
+        }
+    } else {
+        match check_backend(backend) {
+            Err(error) => {
+                writeln!(output, "Native store: ERROR ({error})")?;
+                healthy = false;
+            }
+            Ok(()) => {
+                if backend == Backend::SecretService
+                    && std::env::var_os("DBUS_SESSION_BUS_ADDRESS")
+                        .is_none_or(|value| value.is_empty())
+                {
+                    writeln!(
+                        output,
+                        "Secret Service: session bus unavailable; start a desktop session and unlock your keyring"
+                    )?;
+                    healthy = false;
+                } else {
+                    writeln!(
+                        output,
+                        "Native store: platform supported; availability and unlock state not tested"
+                    )?;
+                }
+            }
+        }
+    }
+    let shell = std::env::var("CLISAGE_SHELL")
+        .or_else(|_| std::env::var("SHELL"))
+        .unwrap_or_default();
+    let shell = match shell.rsplit('/').next() {
+        Some("bash") => "bash",
+        Some("zsh") => "zsh",
+        _ => "unknown (portable POSIX suggestions; set SHELL or CLISAGE_SHELL)",
+    };
+    writeln!(output, "Shell: {shell}")?;
+    writeln!(
+        output,
+        "Integration: opt in with clisage integration bash or zsh; bindings and terminal Meta settings are not tested"
+    )?;
+    if healthy {
+        Ok(())
+    } else {
+        Err("setup checks found problems; see doctor output above".into())
+    }
+}
+
 fn run() -> Result<()> {
     let cli = Cli::parse();
     if cli.editor
         && matches!(
             cli.command,
-            Some(Action::Auth { .. } | Action::Config { .. } | Action::Integration { .. })
+            Some(
+                Action::Auth { .. }
+                    | Action::Config { .. }
+                    | Action::Integration { .. }
+                    | Action::Doctor
+                    | Action::Completions { .. }
+            )
         )
     {
         return Err("--editor is only available for prompts, shell, and explain".into());
     }
     if let Some(Action::Integration { shell }) = &cli.command {
-        print!(
+        write!(
+            io::stdout().lock(),
             "{}",
             match shell {
                 IntegrationShell::Zsh => include_str!("../shell/clisage.zsh"),
                 IntegrationShell::Bash => include_str!("../shell/clisage.bash"),
             }
-        );
+        )?;
         return Ok(());
+    }
+    match cli.command {
+        Some(Action::Completions { shell }) => {
+            // Generators can panic on write failures; generate in memory first.
+            let mut buffer = Vec::new();
+            clap_complete::generate(shell, &mut Cli::command(), "clisage", &mut buffer);
+            io::stdout().lock().write_all(&buffer)?;
+            return Ok(());
+        }
+        Some(Action::Doctor) => return doctor(),
+        Some(Action::Auth { action, backend }) => {
+            let backend = match backend {
+                Some(backend) => backend,
+                None => match load_config() {
+                    Ok(config) => config.credential_backend,
+                    Err(_) => {
+                        eprintln!(
+                            "Configuration unavailable; using pass. Use auth --backend to select another store."
+                        );
+                        Backend::Pass
+                    }
+                },
+            };
+            return auth(action, backend);
+        }
+        _ => {}
     }
     let mut config = load_config()?;
     if let Some(model) = cli.model {
@@ -211,41 +459,11 @@ fn run() -> Result<()> {
     }
     let (mode, mut prompt, command_only) = match cli.command {
         Some(Action::Config { .. }) => {
-            print!("{}", toml::to_string_pretty(&config)?);
+            write!(io::stdout().lock(), "{}", toml::to_string_pretty(&config)?)?;
             return Ok(());
         }
-        Some(Action::Auth { action }) => {
-            match action {
-                Auth::Login => {
-                    login()?;
-                }
-                Auth::Status => {
-                    if env_key()?.is_some() {
-                        println!(
-                            "Credential available from environment (not validated with provider)."
-                        );
-                    } else {
-                        pass_read()?;
-                        println!("Credential available from pass (not validated with provider).");
-                    }
-                }
-                Auth::Logout => {
-                    let status = Command::new("pass")
-                        .args(["rm", "--force", CREDENTIAL_ID])
-                        .stdin(Stdio::null())
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .map_err(|_| "pass unavailable; unable to remove stored credential")?;
-                    if !status.success() {
-                        return Err("unable to remove credential; check pass store".into());
-                    }
-                    println!(
-                        "Stored credential removed. Unset CLISAGE_API_KEY separately if configured."
-                    );
-                }
-            }
-            return Ok(());
+        Some(Action::Auth { .. } | Action::Doctor | Action::Completions { .. }) => {
+            unreachable!("utility handled before configuration")
         }
         Some(Action::Shell {
             prompt,
@@ -290,11 +508,11 @@ fn run() -> Result<()> {
     let messages = clisage::build_messages(mode, &prompt, &input)?;
     let key = match env_key()? {
         Some(key) => key,
-        None => match pass_read() {
+        None => match read_credential(config.credential_backend) {
             Ok(key) => key,
             Err(error) if io::stdin().is_terminal() && io::stderr().is_terminal() => {
                 eprintln!("{error}");
-                login()?
+                login(config.credential_backend)?
             }
             Err(error) => return Err(error),
         },
@@ -324,10 +542,12 @@ fn run() -> Result<()> {
     let mut output = io::stdout().lock();
     // Shell widgets must receive either a complete validated command or nothing.
     let mut response_buffer = Vec::new();
+    let mut terminal_output =
+        clisage::TerminalOutput::with_policy(&mut output, io::stdout().is_terminal());
     let response_output: &mut dyn Write = if command_only || render {
         &mut response_buffer
     } else {
-        &mut output
+        &mut terminal_output
     };
     let mut response_output =
         clisage::ThinkingOutput::new(response_output, &mut thinking, !(command_only || render));

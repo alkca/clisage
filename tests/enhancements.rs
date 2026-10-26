@@ -128,3 +128,31 @@ fn editor_supports_arguments_spaces_failures_and_empty_cancellation() {
         "temporary prompt should be removed"
     );
 }
+
+#[test]
+fn terminal_streaming_filters_controls_even_when_utf8_is_split_between_writes() {
+    use clisage::TerminalOutput;
+    use std::io::Write;
+    let mut bytes = Vec::new();
+    {
+        let mut output = TerminalOutput::new(&mut bytes);
+        let text = "café\n\t\x1b]52;c;fake\x07\r\u{009b}\u{202e}safe";
+        for byte in text.as_bytes() {
+            output.write_all(&[*byte]).unwrap();
+            output.flush().unwrap();
+        }
+    }
+    assert_eq!(String::from_utf8(bytes).unwrap(), "café\n\t]52;c;fakesafe");
+}
+
+#[test]
+fn redirected_streams_keep_the_original_bytes() {
+    use clisage::TerminalOutput;
+    use std::io::Write;
+    let original = b"original\x1b[31m\xff\n";
+    let mut bytes = Vec::new();
+    TerminalOutput::with_policy(&mut bytes, false)
+        .write_all(original)
+        .unwrap();
+    assert_eq!(bytes, original);
+}
