@@ -79,6 +79,10 @@ class BottleSource(unittest.TestCase):
             self.assertIn('version "0.1.0"', formula)
             self.assertNotIn(source.as_uri(), formula)
             self.assertEqual(run('git', 'status', '--porcelain', cwd=source).stdout, '')
+            run('git', 'commit', '--allow-empty', '-m', 'feat: fixture automatic release', cwd=source)
+            run('git', 'tag', 'v0.2.0', cwd=source)
+            module.prepare(source, tap, 'v0.2.0')
+            self.assertIn('version "0.2.0"', (tap / 'Formula/clisage.rb').read_text())
             (source / 'Cargo.toml').write_text('[package]\nversion="0.2.0"\n')
             with self.assertRaises(ValueError):
                 module.prepare(source, tap, 'v0.1.0')

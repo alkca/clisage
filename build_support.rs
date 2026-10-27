@@ -88,26 +88,30 @@ pub fn build_version(root: &Path, manifest: &str) -> String {
             return None;
         }
         let dirty = !git(root, &["status", "--porcelain", "--untracked-files=normal"])?.is_empty();
-        let exact = git(
-            root,
-            &[
-                "rev-parse",
-                "--verify",
-                &format!("refs/tags/v{manifest}^{{commit}}"),
-            ],
-        );
-        if !dirty && exact.as_deref() == Some(&sha) {
-            return Some(manifest.to_string());
-        }
         let tags = git(root, &["tag", "--merged", "HEAD", "--list", "v*"])?;
         let baseline = tags
             .lines()
             .filter_map(|tag| {
                 let version = Version::parse(tag.strip_prefix('v')?).ok()?;
-                version.pre.is_empty().then_some((tag, version))
+                (version.pre.is_empty() && version.build.is_empty()).then_some((tag, version))
             })
             .max_by(|a, b| a.1.cmp_precedence(&b.1));
         let (target, range) = if let Some((tag, version)) = baseline {
+            if !dirty
+                && version.cmp_precedence(&manifest).is_ge()
+                && git(
+                    root,
+                    &[
+                        "rev-parse",
+                        "--verify",
+                        &format!("refs/tags/{tag}^{{commit}}"),
+                    ],
+                )?
+                .as_str()
+                    == sha
+            {
+                return Some(version.to_string());
+            }
             let range = format!("{tag}..HEAD");
             let commits = git(root, &["log", "--format=%B%x00", &range, "--"])?;
             let next = next_target(&version, &commits)?;

@@ -1,7 +1,5 @@
-name: Release PR
+name: Release PR (manual planning)
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read

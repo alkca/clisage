@@ -4,7 +4,8 @@ git_only = true
 semver_check = false
 dependencies_update = false
 features_always_increment_minor = true
-# Release PR preparation must never create tags or publish a release.
+# Manual release-plz planning never creates tags or publishes releases.
+# Automatic CI-gated tags are owned exclusively by tag-release.yml.
 git_release_enable = false
 git_tag_enable = false
 pr_draft = true
