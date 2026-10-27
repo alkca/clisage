@@ -322,6 +322,8 @@ Rust, Quality, PR-title, and Homebrew jobs all succeed on Linux and macOS. The
 **Tag SemVer releases** workflow runs after CI/Homebrew completion. It checks
 workflow identities, event type, repository, exact commit, and individual job
 results; PR/fork checks, skipped jobs, and incomplete runs cannot authorize tags.
+Partial retries use the latest attempt of each required job, retaining earlier
+successes only for jobs that were not rerun.
 
 With no existing tags, the merge that installs this automation receives
 `v0.1.0` from Cargo.toml. Older bootstrap commits are not retroactively released.

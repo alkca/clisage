@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 
 from test_ci_tools import ROOT, run
@@ -125,7 +126,6 @@ class AutoRelease(unittest.TestCase):
         self.github.ready[sha] = True
         self.assertEqual(self.release(), [('v1.0.0', sha)])
 
-
     def test_existing_pre_automation_tags_are_a_baseline_not_a_backfill_request(self):
         self.github.refs['v0.1.0'] = self.historical
         self.github.ready[self.install] = True
@@ -173,6 +173,22 @@ class GitHubGates(unittest.TestCase):
         runs[0]['head_repository'] = {'full_name': 'untrusted/fork'}
         self.assertFalse(self.module.successful_checks(sha, 'fixture/repo', runs, jobs))
 
+    def test_partial_reruns_reuse_prior_successes_without_masking_new_failures(self):
+        sha = 'b' * 40
+        runs, jobs = [], {}
+        for index, (path, names) in enumerate(self.module.REQUIRED_JOBS.items(), 1):
+            runs.append(dict(id=index, path=path, head_sha=sha, head_branch='main', event='push',
+                             head_repository={'full_name': 'fixture/repo'}, status='completed', conclusion='success'))
+            jobs[index] = [dict(id=index * 100 + offset, run_attempt=1, name=name,
+                                status='completed', conclusion='success')
+                           for offset, name in enumerate(sorted(names))]
+        self.assertTrue(self.module.successful_checks(sha, 'fixture/repo', runs, jobs))
+        retried = dict(jobs[1][0], id=900, run_attempt=2, conclusion='failure')
+        jobs[1].append(retried)
+        self.assertFalse(self.module.successful_checks(sha, 'fixture/repo', runs, jobs))
+        jobs[1].append(dict(retried, id=901, run_attempt=3, conclusion='success'))
+        self.assertTrue(self.module.successful_checks(sha, 'fixture/repo', runs, jobs))
+
 
 class GitHubAdapter(unittest.TestCase):
     def test_paginated_tags_are_combined_and_api_errors_are_redacted(self):
@@ -208,7 +224,7 @@ class GitHubAdapter(unittest.TestCase):
         import subprocess
         environment = dict(os.environ, GITHUB_ACTIONS='true', GITHUB_REF='refs/heads/feature',
                            GITHUB_REPOSITORY='fixture/repo', PATH='')
-        result = subprocess.run([__import__('sys').executable, str(ROOT / 'scripts/auto_release.py'), '--apply'],
+        result = subprocess.run([sys.executable, str(ROOT / 'scripts/auto_release.py'), '--apply'],
                                 env=environment, text=True, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Release reconciliation failed', result.stderr)

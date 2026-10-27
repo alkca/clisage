@@ -16,8 +16,8 @@ print credentials or raw credential-store/provider error bodies.
 Do not merge or publish releases without explicit authorization; automatic
 SemVer tags after successful main CI are authorized by the policy below.
 For each PR managed, inspect GitHub Copilot review comments after CI completes,
-address applicable
-recommendations, validate and push follow-up changes. Record why any recommendation
+address applicable recommendations, validate and push follow-up changes. Record
+why any recommendation
 does not apply in the PR workflow summary.
 
 CI and release policy:

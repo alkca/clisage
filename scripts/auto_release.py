@@ -126,7 +126,13 @@ def successful_checks(sha, repository, runs, jobs):
         item = selected.get(path)
         if not item or item.get('status') != 'completed' or item.get('conclusion') != 'success':
             return False
-        successful = {job['name'] for job in jobs.get(item['id'], [])
+        latest = {}
+        for job in jobs.get(item['id'], []):
+            name = job['name']
+            order = (job.get('run_attempt', 1), job.get('id', 0))
+            if name not in latest or order > latest[name][0]:
+                latest[name] = (order, job)
+        successful = {job['name'] for _, job in latest.values()
                       if job.get('status') == 'completed' and job.get('conclusion') == 'success'}
         if not required <= successful:
             return False
@@ -163,7 +169,7 @@ class GitHub:
         jobs = {}
         for item in latest_runs(sha, self.repository, runs).values():
             if item.get('status') == 'completed' and item.get('conclusion') == 'success':
-                jobs[item['id']] = [job for page in self.api(f"actions/runs/{item['id']}/jobs?filter=latest&per_page=100", pages=True)
+                jobs[item['id']] = [job for page in self.api(f"actions/runs/{item['id']}/jobs?filter=all&per_page=100", pages=True)
                                     for job in page['jobs']]
         return successful_checks(sha, self.repository, runs, jobs)
 
