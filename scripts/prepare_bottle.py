@@ -21,8 +21,11 @@ def prepare(source: Path, tap: Path, tag: str) -> None:
     if not re.fullmatch(r'v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', tag):
         raise ValueError('expected an existing stable vMAJOR.MINOR.PATCH tag')
     version = tag[1:]
-    if tomllib.loads((source / 'Cargo.toml').read_text())['package']['version'] != version:
-        raise ValueError('release tag differs from the manifest version')
+    manifest = tomllib.loads((source / 'Cargo.toml').read_text())['package']['version']
+    if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', manifest):
+        raise ValueError('bottles require a stable manifest floor')
+    if tuple(map(int, version.split('.'))) < tuple(map(int, manifest.split('.'))):
+        raise ValueError('release tag is below the manifest version floor')
     try:
         revision = git(source, 'rev-parse', '--verify', f'refs/tags/{tag}^{{commit}}')
     except subprocess.CalledProcessError:
@@ -54,4 +57,4 @@ if __name__ == '__main__':
     try:
         prepare(args.source, args.tap, args.tag)
     except (ValueError, OSError, KeyError, subprocess.SubprocessError):
-        raise SystemExit('Cannot prepare bottle formula; use a clean matching stable tag and a separate tap') from None
+        raise SystemExit('Cannot prepare bottle formula; use a clean stable tag at or above the manifest floor and a separate tap') from None

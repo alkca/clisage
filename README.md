@@ -1,7 +1,8 @@
 # Clisage
 
 A small Rust shell AI assistant for macOS and Linux. Early development: install
-from source with Homebrew or Cargo. No tagged release or prebuilt package yet.
+from source with Homebrew or Cargo. SemVer tags identify CI-validated main
+commits; prebuilt packages are not published.
 
 ## Install with Homebrew
 
@@ -258,14 +259,15 @@ On Debian/Ubuntu, install `zsh pass gnupg dbus gnome-keyring` before running the
 The tooling suite uses `uv run --no-project --offline python -m unittest discover
 -s tests/tooling -v` and requires the repository-pinned release-plz binary on PATH.
 Profiles remain follow-up work. Distribution preparation is described below;
-no release, merge, or bottle publication is automatic.
+SemVer tagging is automatic after main CI; merges, GitHub Releases, and bottle publication are not.
 
 License: MIT OR Apache-2.0.
 
 ## Build versions
 
 `clisage --version` identifies the source used to compile the binary. A clean
-checkout at its matching release tag, such as `v0.1.0`, reports `0.1.0`.
+checkout at a stable release tag, such as `v0.2.0`, reports `0.2.0`, even when
+Cargo.toml still contains the `0.1.0` bootstrap floor.
 Development builds report a SemVer prerelease such as
 `0.2.0-dev.7+g70781bad2390`: the next release target, number of commits since the
 last reachable stable release tag, and a 12-character commit hash. Rebuilding the
@@ -277,7 +279,9 @@ The target follows Conventional Commits: `fix:` advances patch, `feat:` advances
 minor, and breaking changes advance major after 1.0 (minor during 0.x). Other
 development-only commits use the next patch target. A higher manifest version
 is preserved. This describes a development build; it does not create a release.
-`release-plz` continues to prepare reviewed manifest and changelog updates.
+`release-plz` remains available for manually requested manifest and changelog PRs.
+Cargo.toml is a minimum version floor; automatic tags are the release identity.
+No extra version-bump commit or release PR is needed for each merge.
 
 The local build script rechecks Git on each Cargo build to detect tag changes,
 empty commits, and dirty state without changing source files or contacting the
@@ -313,27 +317,65 @@ PR titles follow Conventional Commits and become squash commit titles:
 - `feat!: ...` or another breaking-change commit proposes a major version after
   1.0; during 0.x development it proposes the next minor version.
 
-After changes merge to main, the Release PR workflow uses release-plz to prepare
-a draft PR updating Cargo.toml, Cargo.lock, and CHANGELOG.md. The package is
-versioned from Git tags, with no crates.io publication. No existing tag means
-an initial release proposal at the manifest's version. The planner and its
-checksum are pinned in `.github/actions/setup-release-plz/action.yml`.
+Every PR squash merge to main is automatically tagged after its own **main-push**
+Rust, Quality, PR-title, and Homebrew jobs all succeed on Linux and macOS. The
+**Tag SemVer releases** workflow runs after CI/Homebrew completion. It checks
+workflow identities, event type, repository, exact commit, and individual job
+results; PR/fork checks, skipped jobs, and incomplete runs cannot authorize tags.
+Partial retries use the latest attempt of each required job, retaining earlier
+successes only for jobs that were not rerun.
 
-This workflow only prepares PRs. It never merges, creates a tag, publishes a
-GitHub release, or ships binaries. Actual release/tag creation needs explicit
-maintainer authorization; that authorized tag then becomes the baseline for the
-next version proposal. Version/changelog edits alone do not establish a released
-version. Bot-created release PRs receive explicit CI dispatches because GitHub
-suppresses automatic PR events made with GITHUB_TOKEN; no personal token is
-required. Existing bootstrap commits are retained unchanged. Future squash PR
-titles supply semantic version information.
+With no existing tags, the merge that installs this automation receives
+`v0.1.0` from Cargo.toml. Older bootstrap commits are not retroactively released.
+Later `feat:` merges advance minor; breaking changes advance major after 1.0
+(minor during 0.x); all other Conventional Commit types, including docs and CI,
+advance patch. For example: `v0.1.0` → feature `v0.2.0` → fix `v0.2.1` → docs
+`v0.2.2`. A manually increased manifest floor is preserved.
 
-To activate release PR creation, a maintainer must explicitly enable Settings →
-Actions → General → **Allow GitHub Actions to create and approve pull requests**.
-GitHub bundles those capabilities into one setting, so enabling it requires
-separate approval. Default workflow token permissions stay read-only; only the
-trusted main-branch release-planning job receives the write permissions it needs.
-The workflow never approves reviews or merges PRs.
+Tag creation is serialized. Each run reconciles main commits in order, so
+closely spaced merges and out-of-order CI completions cannot skip a version or
+release a later commit ahead of an unvalidated earlier one. Existing tags are
+immutable; retries are idempotent, and conflicting tags, ambiguous versions,
+or gaps in the release history fail closed. The workflow creates lightweight
+Git tags only. It never rewrites main, moves tags, creates GitHub Releases, or
+publishes crates, binaries, or bottles. Default token permissions remain
+read-only; only the trusted main tagging job receives contents-write access.
+It checks out trusted main and never executes PR-run code or downloads PR-run
+artifacts with that token.
+
+A failed main check pauses tags at that commit. Fix or rerun its CI, then let a
+completion event retry reconciliation. An hourly schedule also recovers missed
+completion events. To retry explicitly, dispatch `tag-release.yml` on main.
+For a read-only preview from a clean, complete main checkout with authenticated
+`gh`, run:
+
+```sh
+GITHUB_REPOSITORY=alkca/clisage uv run --no-project --offline python scripts/auto_release.py
+```
+
+The script defaults to a dry run. `--apply` is restricted to main-branch Actions
+execution. CI tests use local repositories and fake GitHub metadata and never
+create real tags. The required workflow/job names are recorded in
+`scripts/auto_release.py`; update those gates alongside any CI job renames or
+branch-protection changes.
+
+`release-pr.yml` is now a manual-only, optional release-plz planner. Its tag and
+GitHub-release options stay disabled because `tag-release.yml` exclusively owns
+automatic tags. The planner and checksum remain pinned in
+`.github/actions/setup-release-plz/action.yml`. Manually requested bot PRs still
+receive explicit CI dispatches. None of these workflows approves or merges PRs.
+
+To install a specific tagged version from source, clone its tag and install:
+
+```sh
+git clone --branch v0.1.0 https://github.com/alkca/clisage.git
+cd clisage
+cargo install --path . --locked
+```
+
+Use an existing tag from the repository's Tags list; the first tag appears after
+this automation merges and its main checks pass. Homebrew HEAD remains the
+latest-development installation path.
 
 ## Distribution preparation
 
@@ -366,9 +408,9 @@ packages, or publish download URLs. It uses read-only repository contents access
 and grants signing permissions only to the manual build job.
 
 The **Prepare Homebrew bottles** workflow is also manual and runs only on an
-existing stable release tag. After a maintainer separately authorizes and creates
-a matching tag, dispatch `bottles.yml` at that tag. It requires a clean checkout
-whose manifest version matches the tag, generates a temporary stable formula
+existing stable release tag. Dispatch `bottles.yml` at a CI-validated tag when
+bottle preparation is wanted. It requires a clean checkout at that tag, with
+a tag version at or above the manifest floor, and generates a temporary stable formula
 pinned to the public Git commit, builds and tests bottles on the same four
 platforms, then reinstalls and retests each local bottle. Bottle archives, JSON
 metadata, the source formula, and signed provenance are saved as workflow

@@ -1,0 +1,43 @@
+name: Tag SemVer releases
+on:
+  workflow_run:
+    workflows: [CI, Homebrew]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+  # Reconcile missed or coalesced completion events without re-running CI.
+  schedule:
+    - cron: '17 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: main-semver-tags
+  cancel-in-progress: false
+jobs:
+  tag:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name != 'workflow_run' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      # Only trusted main code is checked out. Never download PR-run artifacts
+      # or execute code from the triggering run's head SHA with a write token.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
+        with:
+          version: '0.13.5'
+      - name: Tag every eligible main commit in order
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --no-project --offline python scripts/auto_release.py --apply

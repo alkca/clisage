@@ -224,4 +224,19 @@ fn cargo_rechecks_tags_commits_and_dirty_state_without_source_changes() {
         cargo(&["run", "--quiet", "--locked", "--offline"]),
         format!("{next}.dirty")
     );
+    std::fs::write(dir.path().join("notes"), "fixture notes").unwrap();
+    git(dir.path(), &["tag", "v0.2.0"]);
+    assert_eq!(cargo(&["run", "--quiet", "--locked", "--offline"]), "0.2.0");
+}
+
+#[test]
+fn automatic_tags_override_the_bootstrap_manifest_on_clean_checkouts() {
+    let dir = fixture();
+    git(dir.path(), &["tag", "v0.2.0"]);
+    assert_eq!(build_support::build_version(dir.path(), "0.1.0"), "0.2.0");
+    git(dir.path(), &["tag", "v0.2.1-rc.1"]);
+    assert_eq!(build_support::build_version(dir.path(), "0.1.0"), "0.2.0");
+    assert!(build_support::build_version(dir.path(), "0.3.0").starts_with("0.3.0-dev.0+g"));
+    std::fs::write(dir.path().join("notes"), "dirty fixture").unwrap();
+    assert!(build_support::build_version(dir.path(), "0.1.0").starts_with("0.2.1-dev.0+g"));
 }

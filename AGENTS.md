@@ -13,9 +13,11 @@ credential fixtures. Public GitHub identity is permitted. Use clearly fake test
 values. Scan staged changes and Git history with gitleaks before pushing. Never
 print credentials or raw credential-store/provider error bodies.
 
-Do not merge or release without explicit authorization. For each PR managed,
-inspect GitHub Copilot review comments after CI completes, address applicable
-recommendations, validate and push follow-up changes. Record why any recommendation
+Do not merge or publish releases without explicit authorization; automatic
+SemVer tags after successful main CI are authorized by the policy below.
+For each PR managed, inspect GitHub Copilot review comments after CI completes,
+address applicable recommendations, validate and push follow-up changes. Record
+why any recommendation
 does not apply in the PR workflow summary.
 
 CI and release policy:
@@ -23,5 +25,11 @@ CI and release policy:
 - Keep Homebrew tests pinned to the checkout SHA and enabled on every PR.
 - Run `uv run --no-project --offline python -m unittest discover -s tests/tooling -v`
   with release-plz available, plus actionlint, ShellCheck, and cargo audit.
-- Release automation prepares draft PRs only; do not enable tag/release publishing
-  without explicit authorization. Do not add credentials to release fixtures.
+- Tag every main PR squash commit after its own required main-push CI and
+  Homebrew jobs succeed. Use immutable, monotonically increasing SemVer tags;
+  serialize and reconcile merges in order. The first tag is the manifest
+  bootstrap version; features bump minor, breaking changes bump major (minor
+  during 0.x), and other PRs bump patch. Never move or overwrite existing tags.
+- Keep release-plz draft planning manual. GitHub Releases, binary/package
+  publication, and bottle hosting still require explicit authorization.
+  Do not add credentials to release fixtures.
