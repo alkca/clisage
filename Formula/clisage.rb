@@ -1,6 +1,10 @@
 class Clisage < Formula
   desc "Shell AI assistant with encrypted credentials and Unix pipelines"
   homepage "https://github.com/alkca/clisage"
+  url "https://github.com/alkca/clisage.git",
+      tag:      "v0.1.0",
+      revision: "61d11fed414a5efeb638fe698ca3a5f9f4305620"
+  version "0.1.0"
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/alkca/clisage.git", branch: "main"
 

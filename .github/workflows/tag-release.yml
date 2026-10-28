@@ -25,7 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: read
+      actions: write
+      pull-requests: write
     steps:
       # Only trusted main code is checked out. Never download PR-run artifacts
       # or execute code from the triggering run's head SHA with a write token.
@@ -41,3 +42,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: uv run --no-project --offline python scripts/auto_release.py --apply
+      - name: Prepare stable Homebrew update PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --no-project --offline python scripts/homebrew_release.py

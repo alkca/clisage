@@ -5,8 +5,10 @@ from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'scripts'))
 
 
 class Distribution(unittest.TestCase):

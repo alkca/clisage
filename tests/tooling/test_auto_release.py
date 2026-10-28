@@ -7,6 +7,8 @@ import unittest
 
 from test_ci_tools import ROOT, run
 
+sys.path.insert(0, str(ROOT / "scripts"))
+
 
 def load():
     spec = importlib.util.spec_from_file_location('auto_release', ROOT / 'scripts/auto_release.py')
@@ -79,6 +81,36 @@ class AutoRelease(unittest.TestCase):
         self.github.ready[feature] = True
         self.assertEqual(self.release(), [('v0.2.0', feature), ('v0.2.1', fix), ('v0.2.2', docs)])
         self.assertEqual(self.release(), [])
+
+    def test_only_stable_formula_metadata_syncs_are_exempt_from_tags(self):
+        import homebrew_release
+        formula = self.root / 'Formula/clisage.rb'
+        formula.parent.mkdir()
+        original = homebrew_release.update_formula((ROOT / 'Formula/clisage.rb').read_text(), 'v0.1.0', self.install)
+        formula.write_text(original)
+        first = self.commit('feat: stable Homebrew installs')
+        self.github.refs = {'v0.1.0': self.install, 'v0.2.0': first}
+        formula.write_text(homebrew_release.update_formula(original, 'v0.2.0', first))
+        sync = self.commit('chore(homebrew): update clisage to v0.2.0')
+        self.assertEqual(self.module.plan(self.root, self.github.refs), [])
+        fix = self.commit('fix: improve output')
+        self.assertEqual(self.module.plan(self.root, self.github.refs), [('v0.2.1', fix)])
+        self.github.refs['v0.2.1'] = fix
+        self.assertEqual(self.module.plan(self.root, self.github.refs), [])
+        formula.write_text(formula.read_text().replace('  def install', '  # changed behavior\n  def install'))
+        behavioral = self.commit('chore(homebrew): update clisage to v0.2.0')
+        self.assertEqual(self.module.plan(self.root, self.github.refs), [('v0.2.2', behavioral)])
+        self.assertNotEqual(sync, behavioral)
+
+    def test_introducing_a_formula_with_a_sync_title_still_receives_a_tag(self):
+        import homebrew_release
+        formula = self.root / 'Formula/clisage.rb'
+        formula.parent.mkdir()
+        formula.write_text(homebrew_release.update_formula((ROOT / 'Formula/clisage.rb').read_text(),
+                                                          'v0.1.0', self.install))
+        added = self.commit('chore(homebrew): update clisage to v0.1.0')
+        self.github.refs = {'v0.1.0': self.install}
+        self.assertEqual(self.module.plan(self.root, self.github.refs), [('v0.1.1', added)])
 
     def test_breaking_changes_follow_existing_pre_one_and_stable_rules(self):
         for baseline, message, expected in [
@@ -205,6 +237,18 @@ class GitHubAdapter(unittest.TestCase):
             with self.assertRaises(RuntimeError) as error:
                 client.tags()
             self.assertNotIn('fake-sensitive-error-body', str(error.exception))
+
+    def test_json_posts_preserve_nested_fields_and_accept_empty_dispatch_responses(self):
+        import json
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        module = load()
+        client = module.GitHub('fixture/repo')
+        fields = {'parents': ['a' * 40], 'tree': [{'path': 'Formula/clisage.rb', 'mode': '100644'}]}
+        with patch.object(module.subprocess, 'run', return_value=CompletedProcess([], 0, '', '')) as call:
+            self.assertIsNone(client.api('actions/workflows/ci.yml/dispatches', fields=fields))
+            self.assertEqual(json.loads(call.call_args.kwargs['input']), fields)
+            self.assertEqual(call.call_args.args[0][-4:], ['--method', 'POST', '--input', '-'])
 
     def test_creation_retries_accept_only_an_existing_identical_target(self):
         module = load()

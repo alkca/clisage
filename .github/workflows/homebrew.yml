@@ -40,3 +40,10 @@ jobs:
         run: brew test --HEAD clisage/ci/clisage
       - name: Check formula style
         run: brew style "$GITHUB_WORKSPACE/Formula/clisage.rb" "$(brew --repository clisage/ci)/Formula/clisage.rb"
+      - name: Build and test the stable SemVer source
+        run: |
+          brew uninstall clisage/ci/clisage
+          brew install --yes clisage/ci/clisage
+          uv run --no-project --offline python scripts/check-stable-formula.py \
+            "$(brew list --versions clisage/ci/clisage)" "$(clisage --version)"
+          brew test clisage/ci/clisage

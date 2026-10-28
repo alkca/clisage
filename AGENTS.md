@@ -30,6 +30,9 @@ CI and release policy:
   serialize and reconcile merges in order. The first tag is the manifest
   bootstrap version; features bump minor, breaking changes bump major (minor
   during 0.x), and other PRs bump patch. Never move or overwrite existing tags.
+- Synchronize stable Homebrew sources through reviewed formula PRs after tagging.
+  Exempt only generated, stable-source-only formula synchronization commits from
+  tagging to prevent a release loop; behavioral formula changes still receive tags.
 - Keep release-plz draft planning manual. GitHub Releases, binary/package
   publication, and bottle hosting still require explicit authorization.
   Do not add credentials to release fixtures.

@@ -8,6 +8,8 @@ import re
 import subprocess
 import tomllib
 
+from homebrew_release import update_formula
+
 
 def git(source: Path, *arguments: str) -> str:
     return subprocess.check_output(['git', '-C', str(source), *arguments], text=True, stderr=subprocess.DEVNULL).strip()
@@ -33,16 +35,7 @@ def prepare(source: Path, tap: Path, tag: str) -> None:
     if git(source, 'rev-parse', 'HEAD') != revision or git(source, 'status', '--porcelain'):
         raise ValueError('bottles require a clean checkout at the requested release tag')
     formula = (source / 'Formula/clisage.rb').read_text()
-    # Immutable Git source preserves build identity and avoids embedding local paths.
-    stable = (f'  url "https://github.com/alkca/clisage.git",\n'
-              f'      tag:      "{tag}",\n'
-              f'      revision: "{revision}"\n'
-              f'  version "{version}"\n')
-    if len(re.findall(r'^  head ', formula, flags=re.MULTILINE)) != 1:
-        raise ValueError('expected exactly one formula head declaration')
-    formula, count = re.subn(r'(?=^  license )', lambda _: stable, formula, flags=re.MULTILINE)
-    if count != 1:
-        raise ValueError('expected exactly one formula license declaration')
+    formula = update_formula(formula, tag, revision)
     destination = tap / 'Formula/clisage.rb'
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(formula)
