@@ -365,7 +365,9 @@ PR with the immutable tag, full source revision, and formula version. It explici
 dispatches CI and Homebrew checks because GitHub suppresses events from its own
 token. Normal review, required checks, and merging still apply. Stable upgrades
 become available when that formula PR merges; a tag alone does not update the tap.
-Linux and macOS CI test both the exact PR HEAD and the proposed stable install.
+Linux and macOS CI always test the exact PR HEAD. Formula changes additionally
+build and test the stable install; manual Homebrew dispatches on main also do so.
+Unrelated changes avoid rebuilding the previous release.
 Stable checks reject a downgrade relative to main, including an obsolete update PR.
 Closed update PRs are left closed; reopen them to retry. Interrupted runs retry
 without force-pushing or changing existing branch content.

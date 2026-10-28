@@ -87,11 +87,11 @@ class HomebrewRelease(unittest.TestCase):
         self.assertIn('brew install --HEAD --yes clisage/ci/clisage', workflow)
         self.assertIn('brew install --yes clisage/ci/clisage', workflow)
         self.assertIn('brew test clisage/ci/clisage', workflow)
-        self.assertIn('scripts/check-stable-formula.py', workflow)
+        self.assertIn('scripts/check_stable_formula.py', workflow)
 
     def test_stable_install_requires_exact_versions_and_rejects_downgrades(self):
         import importlib.util
-        spec = importlib.util.spec_from_file_location('check_stable', ROOT / 'scripts/check-stable-formula.py')
+        spec = importlib.util.spec_from_file_location('check_stable', ROOT / 'scripts/check_stable_formula.py')
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         newer = self.module.update_formula(self.formula, 'v0.2.0', self.sha)
@@ -124,3 +124,26 @@ class HomebrewRelease(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.module.publish(self.root, github)
         github.api.assert_not_called()
+
+    def test_stable_builds_only_follow_formula_changes_or_manual_main_checks(self):
+        import check_stable_formula
+        from test_ci_tools import SourceFixture, run
+        fixture = type("Fixture", (SourceFixture, unittest.TestCase), {})()
+        fixture.setUp()
+        try:
+            root = fixture.source
+            base = run('git', 'rev-parse', 'HEAD', cwd=root).stdout.strip()
+            run('git', 'update-ref', 'refs/remotes/origin/main', base, cwd=root)
+            (root / 'unrelated.txt').write_text('fixture change\n')
+            run('git', 'add', '.', cwd=root)
+            run('git', 'commit', '-m', 'docs: fixture', cwd=root)
+            self.assertFalse(check_stable_formula.needs_build(root, 'pull_request', base, 'refs/heads/fixture'))
+            self.assertTrue(check_stable_formula.needs_build(root, 'workflow_dispatch', '', 'refs/heads/main'))
+            self.assertFalse(check_stable_formula.needs_build(root, 'workflow_dispatch', '', 'refs/heads/fixture'))
+            self.assertFalse(check_stable_formula.needs_build(root, 'push', '0' * 40, 'refs/heads/fixture'))
+            (root / 'Formula/clisage.rb').write_text(fixture.original + '# fixture formula change\n')
+            run('git', 'add', '.', cwd=root)
+            run('git', 'commit', '-m', 'chore: formula fixture', cwd=root)
+            self.assertTrue(check_stable_formula.needs_build(root, 'push', base, 'refs/heads/main'))
+        finally:
+            fixture.doCleanups()
