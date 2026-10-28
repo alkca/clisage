@@ -10,7 +10,7 @@ The repository doubles as a Homebrew tap:
 
 ```sh
 brew tap alkca/clisage https://github.com/alkca/clisage
-brew install --HEAD alkca/clisage/clisage
+brew install alkca/clisage/clisage
 ```
 
 Homebrew installs the Rust build toolchain and `pass`/GPG dependencies, then
@@ -19,11 +19,27 @@ prebuilt bottles yet. Homebrew does not create a GPG key or initialize your
 password store: if needed, run `pass init -p clisage YOUR_GPG_KEY_ID` with an existing encryption-capable key,
 then `clisage auth login`.
 
-To update this development installation later:
+To follow stable SemVer releases:
 
 ```sh
-brew upgrade --fetch-HEAD alkca/clisage/clisage
+brew update
+brew upgrade alkca/clisage/clisage
 ```
+
+If you previously installed with `--HEAD`, switch to stable once after updating
+the tap. Homebrew retains the HEAD installation choice during normal upgrades:
+
+```sh
+brew update
+brew uninstall alkca/clisage/clisage
+brew install alkca/clisage/clisage
+clisage --version
+```
+
+This preserves your Clisage configuration and credential store. Stable installs
+report a plain version such as `clisage 0.1.0`. Development builds remain available
+with `brew install --HEAD alkca/clisage/clisage` and update using
+`brew upgrade --fetch-HEAD alkca/clisage/clisage`.
 
 ## Try it
 
@@ -317,8 +333,8 @@ PR titles follow Conventional Commits and become squash commit titles:
 - `feat!: ...` or another breaking-change commit proposes a major version after
   1.0; during 0.x development it proposes the next minor version.
 
-Every PR squash merge to main is automatically tagged after its own **main-push**
-Rust, Quality, PR-title, and Homebrew jobs all succeed on Linux and macOS. The
+Every PR squash merge to main, except the formula synchronization described below,
+is automatically tagged after its own **main-push** Rust, Quality, PR-title, and Homebrew jobs all succeed on Linux and macOS. The
 **Tag SemVer releases** workflow runs after CI/Homebrew completion. It checks
 workflow identities, event type, repository, exact commit, and individual job
 results; PR/fork checks, skipped jobs, and incomplete runs cannot authorize tags.
@@ -337,11 +353,30 @@ closely spaced merges and out-of-order CI completions cannot skip a version or
 release a later commit ahead of an unvalidated earlier one. Existing tags are
 immutable; retries are idempotent, and conflicting tags, ambiguous versions,
 or gaps in the release history fail closed. The workflow creates lightweight
-Git tags only. It never rewrites main, moves tags, creates GitHub Releases, or
-publishes crates, binaries, or bottles. Default token permissions remain
-read-only; only the trusted main tagging job receives contents-write access.
+Git tags and prepares stable Homebrew formula update PRs. It never rewrites main,
+moves tags, creates GitHub Releases, or publishes crates, binaries, or bottles. Default token permissions remain
+read-only; only the trusted main tagging job receives contents/PR-write and
+Actions-dispatch access.
 It checks out trusted main and never executes PR-run code or downloads PR-run
 artifacts with that token.
+
+After tagging, the workflow opens a `chore(homebrew): update clisage to vX.Y.Z`
+PR with the immutable tag, full source revision, and formula version. It explicitly
+dispatches CI and Homebrew checks because GitHub suppresses events from its own
+token. Normal review, required checks, and merging still apply. Stable upgrades
+become available when that formula PR merges; a tag alone does not update the tap.
+Linux and macOS CI always test the exact PR HEAD. Formula changes additionally
+build and test the stable install; manual Homebrew dispatches on main also do so.
+Unrelated changes avoid rebuilding the previous release.
+Stable checks reject a downgrade relative to main, including an obsolete update PR.
+Closed update PRs are left closed; reopen them to retry. Interrupted runs retry
+without force-pushing or changing existing branch content.
+
+Formula synchronization commits are exempt from release tagging to prevent a
+release/update loop. The exemption requires the generated title, only a stable
+source/version change in `Formula/clisage.rb`, and an existing higher release tag
+at an ancestor commit. Changes to dependencies, installation logic, tests, or any
+other file still receive a release tag.
 
 A failed main check pauses tags at that commit. Fix or rerun its CI, then let a
 completion event retry reconciliation. An hourly schedule also recovers missed
@@ -373,8 +408,7 @@ cd clisage
 cargo install --path . --locked
 ```
 
-Use an existing tag from the repository's Tags list; the first tag appears after
-this automation merges and its main checks pass. Homebrew HEAD remains the
+Use an existing tag from the repository's Tags list. Homebrew HEAD remains the
 latest-development installation path.
 
 ## Distribution preparation
@@ -414,7 +448,7 @@ a tag version at or above the manifest floor, and generates a temporary stable f
 pinned to the public Git commit, builds and tests bottles on the same four
 platforms, then reinstalls and retests each local bottle. Bottle archives, JSON
 metadata, the source formula, and signed provenance are saved as workflow
-artifacts. The public HEAD formula and the SHA-pinned Homebrew tests on every PR
+artifacts. The public stable/HEAD formula and the SHA-pinned Homebrew tests on every PR
 remain in place.
 
 Publishing bottles requires a separate reviewed change with the final hosting

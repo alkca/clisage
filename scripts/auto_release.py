@@ -90,10 +90,14 @@ def plan(root, tags):
             if previous is not None and released[sha] <= previous:
                 raise ValueError('main release tags are not monotonically increasing')
             previous, last = released[sha], index
-    if last >= floor and any(sha not in released for sha in history[floor:last + 1]):
+    from homebrew_release import metadata_sync
+    exempt = {sha for sha in history[floor:] if metadata_sync(root, sha, tags)}
+    if last >= floor and any(sha not in released and sha not in exempt for sha in history[floor:last + 1]):
         raise ValueError('main release history contains an untagged gap')
     result = []
     for sha in history[max(floor, last + 1):]:
+        if sha in exempt:
+            continue
         manifest = manifest_version(root, sha)
         message = git(root, 'show', '-s', '--format=%B', sha)
         # Validate even the initial title; the first release uses the manifest floor.
@@ -150,14 +154,13 @@ class GitHub:
         if pages:
             args += ['--paginate', '--slurp']
         if fields:
-            args += ['--method', 'POST']
-            for key, value in fields.items():
-                args += ['-f', f'{key}={value}']
-        result = subprocess.run(args, text=True, capture_output=True, timeout=120)
+            args += ['--method', 'POST', '--input', '-']
+        result = subprocess.run(args, input=json.dumps(fields) if fields else None,
+                                text=True, capture_output=True, timeout=120)
         if result.returncode:
             # API errors may contain provider details; never echo raw bodies.
             raise RuntimeError('GitHub API request failed; inspect workflow permissions and service status')
-        return json.loads(result.stdout)
+        return json.loads(result.stdout) if result.stdout.strip() else None
 
     def tags(self):
         return {item['name']: item['commit']['sha']
