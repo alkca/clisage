@@ -379,8 +379,8 @@ at an ancestor commit. Changes to dependencies, installation logic, tests, or an
 other file still receive a release tag.
 
 A failed main check pauses tags at that commit. Fix or rerun its CI, then let a
-completion event retry reconciliation. An hourly schedule also recovers missed
-completion events. To retry explicitly, dispatch `tag-release.yml` on main.
+completion event retry reconciliation. To recover missed completion events or
+retry explicitly, dispatch `tag-release.yml` on main.
 For a read-only preview from a clean, complete main checkout with authenticated
 `gh`, run:
 
