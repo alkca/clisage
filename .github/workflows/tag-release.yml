@@ -5,9 +5,6 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
-  # Reconcile missed or coalesced completion events without re-running CI.
-  schedule:
-    - cron: '17 * * * *'
 permissions:
   contents: read
 concurrency:
