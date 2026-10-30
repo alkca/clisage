@@ -35,6 +35,7 @@ jobs:
       - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
         with:
           version: '0.13.5'
+          enable-cache: false
       - name: Tag every eligible main commit in order
         env:
           GH_TOKEN: ${{ github.token }}

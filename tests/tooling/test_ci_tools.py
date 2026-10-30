@@ -15,6 +15,34 @@ def run(*args, cwd=None):
     return subprocess.run(args, cwd=cwd, text=True, capture_output=True, check=True, env=GIT_ENV)
 
 
+class WorkflowTriggers(unittest.TestCase):
+    def test_only_pr_runs_share_a_cancellable_concurrency_group(self):
+        for filename in ('ci.yml', 'homebrew.yml'):
+            with self.subTest(workflow=filename):
+                workflow = (ROOT / '.github/workflows' / filename).read_text()
+                self.assertIn(
+                    "concurrency:\n"
+                    "  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}\n"
+                    "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n",
+                    workflow)
+
+    def test_standard_library_python_helpers_do_not_cache_dependencies(self):
+        for path in sorted((ROOT / '.github/workflows').glob('*.yml')):
+            for step in path.read_text().split('      - uses: astral-sh/setup-uv@')[1:]:
+                with self.subTest(workflow=path.name):
+                    settings = step.split('\n      - ', 1)[0]
+                    self.assertIn('\n          enable-cache: false', settings)
+
+    def test_push_checks_only_run_on_main_and_preserve_pr_and_manual_checks(self):
+        for filename in ('ci.yml', 'homebrew.yml'):
+            with self.subTest(workflow=filename):
+                workflow = (ROOT / '.github/workflows' / filename).read_text()
+                triggers = workflow.split('\non:\n', 1)[1].split('\npermissions:', 1)[0]
+                self.assertIn('\n  push:\n    branches: [main]\n', '\n' + triggers)
+                self.assertIn('\n  pull_request:', triggers)
+                self.assertIn('\n  workflow_dispatch:', triggers)
+
+
 class Titles(unittest.TestCase):
     def test_semantic_pr_titles(self):
         for title in ['feat: add profiles', 'fix(auth): redact errors', 'feat!: change CLI',
