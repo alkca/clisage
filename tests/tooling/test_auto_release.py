@@ -36,6 +36,15 @@ class FakeGitHub:
         self.created.append((tag, sha))
 
 
+class ReleaseTriggers(unittest.TestCase):
+    def test_release_tagging_uses_completion_and_manual_triggers_without_schedule(self):
+        workflow = (ROOT / '.github/workflows/tag-release.yml').read_text()
+        self.assertIn('  workflow_run:\n', workflow)
+        self.assertIn('    workflows: [CI, Homebrew]\n', workflow)
+        self.assertIn('  workflow_dispatch:\n', workflow)
+        self.assertNotIn('  schedule:', workflow)
+
+
 class AutoRelease(unittest.TestCase):
     def setUp(self):
         self.module = load()
