@@ -132,14 +132,19 @@ def verify(root, github, tag):
 
 def publish(root, directory, github, tag):
     sha = verify(root, github, tag)
+    print('Verified release tag and required main checks.')
     _, assets = collect(directory, github.repository, tag, sha)
+    print('Verified the complete bottle artifact set.')
     matches = [item for item in releases(github) if item['tag_name'] == tag]
     if matches:
         release = matches[0]
         if marker(tag, sha) not in (release.get('body') or '') or release.get('prerelease'):
             raise ValueError('existing release is not managed by bottle automation')
     else:
-        release = github.api('releases', fields=dict(tag_name=tag, target_commitish=sha, name=tag,
+        # The existing verified tag supplies the target. Explicitly targeting an
+        # older workflow-changing SHA can require permissions GITHUB_TOKEN lacks.
+        print('Creating a draft release for the existing validated tag.')
+        release = github.api('releases', fields=dict(tag_name=tag, name=tag,
                                                     draft=True, prerelease=False,
                                                     body=marker(tag, sha) + '\n\nTested Homebrew bottles.'))
     existing = {asset['name']: asset for asset in release.get('assets', [])}
@@ -156,6 +161,7 @@ def publish(root, directory, github, tag):
             raise ValueError('published release is incomplete; manual investigation required')
         return
     if missing:
+        print('Uploading verified release assets.')
         gh(['release', 'upload', tag, '--repo', github.repository, *missing])
     # Confirm all assets arrived before making any of them publicly available.
     uploaded = github.api(f'releases/{release["id"]}')
@@ -164,6 +170,7 @@ def publish(root, directory, github, tag):
         raise ValueError('release upload is incomplete or differs from tested artifacts')
     if github.tags().get(tag) != sha:
         raise ValueError('release tag changed during publication')
+    print('Publishing the complete release after digest and tag verification.')
     github.api(f'releases/{release["id"]}', method='PATCH', fields={'draft': False})
 
 
