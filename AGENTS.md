@@ -30,9 +30,12 @@ CI and release policy:
   serialize and reconcile merges in order. The first tag is the manifest
   bootstrap version; features bump minor, breaking changes bump major (minor
   during 0.x), and other PRs bump patch. Never move or overwrite existing tags.
-- Synchronize stable Homebrew sources through reviewed formula PRs after tagging.
-  Exempt only generated, stable-source-only formula synchronization commits from
+- After validated tags, automatically build and test bottles, publish GitHub
+  Releases with bottle assets and provenance, and open reviewed formula PRs.
+  Formula PR merging remains manual; never auto-approve or auto-merge them.
+  Exempt only generated, stable-source/bottle-metadata-only synchronization commits from
   tagging to prevent a release loop; behavioral formula changes still receive tags.
-- Keep release-plz draft planning manual. GitHub Releases, binary/package
-  publication, and bottle hosting still require explicit authorization.
+- Keep release-plz draft planning manual. Automatic GitHub Releases and Homebrew
+  bottle hosting are authorized for validated tags from this automation's
+  installation onward. Other binary/package publication requires authorization.
   Do not add credentials to release fixtures.

@@ -104,6 +104,23 @@ class HomebrewRelease(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.check(self.formula, newer, 'clisage 0.1.0', 'clisage 0.1.0')
 
+    def test_bottled_formula_must_be_installed_from_a_bottle(self):
+        import check_stable_formula
+        from bottle_release import PLATFORMS, release_url
+        manifest = dict(schema=1, tag='v0.2.3', sha=self.sha,
+                        root_url=release_url('alkca/clisage', 'v0.2.3'), bottles={
+                            platform: dict(cellar='any_skip_relocation', sha256='b' * 64,
+                                           filename=f'clisage-0.2.3.{platform}.bottle.tar.gz')
+                            for platform in PLATFORMS})
+        formula = self.module.update_formula(self.formula, 'v0.2.3', self.sha, manifest)
+        receipt = {'formulae': [{'installed': [{'version': '0.2.3', 'poured_from_bottle': True}]}]}
+        check_stable_formula.check(formula, self.formula, 'clisage 0.2.3', 'clisage 0.2.3', receipt)
+        receipt['formulae'][0]['installed'][0]['poured_from_bottle'] = False
+        with self.assertRaises(ValueError):
+            check_stable_formula.check(formula, self.formula, 'clisage 0.2.3', 'clisage 0.2.3', receipt)
+        with self.assertRaises(ValueError):
+            check_stable_formula.check(formula, self.formula, 'clisage 0.2.3', 'clisage 0.2.3')
+
     def test_closed_updates_and_conflicting_existing_branches_are_preserved(self):
         github = Mock(repository='alkca/clisage')
         github.tags.return_value = {'v0.2.3': self.sha}

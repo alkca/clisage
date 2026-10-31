@@ -20,10 +20,11 @@ jobs:
        github.event.workflow_run.conclusion == 'success') ||
       (github.event_name != 'workflow_run' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
+    outputs:
+      releases: ${{ steps.pending.outputs.releases }}
     permissions:
       contents: write
       actions: write
-      pull-requests: write
     steps:
       # Only trusted main code is checked out. Never download PR-run artifacts
       # or execute code from the triggering run's head SHA with a write token.
@@ -40,7 +41,50 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: uv run --no-project --offline python scripts/auto_release.py --apply
-      - name: Prepare stable Homebrew update PR
+      - name: Find validated tags still needing bottles
+        id: pending
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv run --no-project --offline python scripts/homebrew_release.py
+        run: |
+          releases=$(uv run --no-project --offline python scripts/bottle_release.py pending)
+          echo "releases=$releases" >> "$GITHUB_OUTPUT"
+  release:
+    needs: tag
+    if: needs.tag.outputs.releases != '[]'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        tag: ${{ fromJSON(needs.tag.outputs.releases) }}
+    permissions:
+      contents: write
+      actions: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/bottles.yml
+    with:
+      release_tag: ${{ matrix.tag }}
+  formula:
+    needs: [tag, release]
+    if: >-
+      always() && needs.tag.result == 'success' &&
+      (needs.release.result == 'success' || needs.release.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
+        with:
+          version: '0.13.5'
+          enable-cache: false
+      - name: Prepare reviewed formula PR from the latest published bottles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --no-project --offline python scripts/bottle_release.py sync
