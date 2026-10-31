@@ -245,27 +245,50 @@ class BottleRelease(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.manifest()
 
-    def test_workflow_reinstalls_and_attests_homebrews_actual_bottle_filename(self):
+    def test_workflow_installs_and_attests_homebrews_actual_bottle_filename(self):
         import subprocess
         workflow = (ROOT / '.github/workflows/bottles.yml').read_text()
         step = workflow.split('      - name: Build and test the bottle\n', 1)[1]
         commands = textwrap.dedent(step.split('        run: |\n', 1)[1].split('      - name:', 1)[0])
         binaries = self.root / 'bin'
         binaries.mkdir()
+        tap = self.root / 'tap'
+        (tap / 'Formula').mkdir(parents=True)
+        formula = tap / 'Formula/clisage.rb'
+        formula.write_text('fixture source formula\n')
         brew = binaries / 'brew'
         brew.write_text('#!/bin/bash\nset -eu\ncase "$1" in\n'
-                        'bottle) touch clisage--0.2.3.arm64_sequoia.bottle.tar.gz;;\n'
-                        'reinstall) [[ -f "$2" ]] || { echo "bottle glob did not resolve" >&2; exit 1; };;\n'
+                        '--repository) echo "$FIXTURE_TAP";;\n'
+                        'bottle) if [[ "$2" == --json ]]; then\n'
+                        '  touch clisage--0.2.3.arm64_sequoia.bottle.tar.gz\n'
+                        '  echo \'{"clisage/release/clisage":{"bottle":{"root_url":"https://example.invalid"}}}\' > clisage.bottle.json\n'
+                        'else echo "fixture local bottle formula" > "$FIXTURE_TAP/Formula/clisage.rb"; fi;;\n'
+                        'reinstall) echo "reinstall accepts formula names, not local bottles" >&2; exit 1;;\n'
+                        'uninstall) touch .fixture-uninstalled;;\n'
+                        'install) if [[ "$2" != --build-bottle ]]; then\n'
+                        '  [[ "$2" == --force-bottle && -f .fixture-uninstalled ]] || exit 1\n'
+                        '  [[ -f clisage-0.2.3.arm64_sequoia.bottle.tar.gz ]] || exit 1\n'
+                        '  touch .fixture-poured\n'
+                        'fi;;\n'
+                        'info) echo \'{"formulae":[{"installed":[{"poured_from_bottle":true}]}]}\';;\n'
                         'esac\n')
         brew.chmod(0o755)
         clisage = binaries / 'clisage'
         clisage.write_text('#!/bin/sh\necho "clisage 0.2.3"\n')
         clisage.chmod(0o755)
         environment = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
-                           RELEASE_TAG=self.tag, GITHUB_REPOSITORY='alkca/clisage')
+                           RELEASE_TAG=self.tag, GITHUB_REPOSITORY='alkca/clisage', FIXTURE_TAP=str(tap))
         result = subprocess.run(['bash', '-euo', 'pipefail', '-c', commands], cwd=self.root,
                                 env=environment, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.root / 'dist/.fixture-poured').is_file(),
+                        'test must remove the source build and pour via the temporary formula')
+        self.assertEqual(formula.read_text(), 'fixture source formula\n')
+        self.assertFalse((self.root / 'dist/clisage-0.2.3.arm64_sequoia.bottle.tar.gz').exists())
+        self.assertFalse((self.root / 'dist/local-test.json').exists())
+        self.assertFalse((self.root / 'dist/bottle-receipt.json').exists())
+        metadata = json.loads((self.root / 'dist/clisage.bottle.json').read_text())
+        self.assertEqual(metadata['clisage/release/clisage']['bottle']['root_url'], 'https://example.invalid')
         subject = workflow.split('          subject-path: ', 1)[1].splitlines()[0]
         self.assertEqual(len(list(self.root.glob(subject))), 1,
                          'provenance must attest the bottle produced by brew bottle')
