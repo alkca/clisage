@@ -21,12 +21,14 @@ def bottle_block(manifest):
     from bottle_release import PLATFORMS, validate_manifest
     validate_manifest(manifest, 'alkca/clisage', manifest['tag'], manifest['sha'])
     lines = ['  bottle do', f'    root_url "{manifest["root_url"]}"']
-    prefixes = []
+    entries = []
     for platform in PLATFORMS:
         item = manifest['bottles'][platform]
         cellar = item['cellar']
         cellar = ':' + cellar if cellar.startswith('any') else f'"{cellar}"'
-        prefixes.append((f'    sha256 cellar: {cellar}, {platform}:', item['sha256']))
+        entries.append((f'    sha256 cellar: {cellar},', platform, item['sha256']))
+    cellar_width = max(len(prefix) for prefix, _, _ in entries)
+    prefixes = [(f'{prefix:<{cellar_width}} {platform}:', digest) for prefix, platform, digest in entries]
     width = max(len(prefix) for prefix, _ in prefixes)
     lines.extend(f'{prefix:<{width}} "{digest}"' for prefix, digest in prefixes)
     return '\n'.join(lines) + '\n  end\n\n'
@@ -57,7 +59,7 @@ def strip_stable(formula):
             raise ValueError('bottles require a stable source')
         tag, sha = source
         root = re.search(r'^    root_url "([^"\n]+)"$', blocks[0], re.MULTILINE)
-        entries = re.findall(r'^    sha256 cellar: (:any(?:_skip_relocation)?|"[^"\n]+"), '
+        entries = re.findall(r'^    sha256 cellar: (:any(?:_skip_relocation)?|"[^"\n]+"), +'
                              r'([a-z0-9_]+): +"([a-f0-9]{64})"$', blocks[0], re.MULTILINE)
         manifest = dict(schema=1, tag=tag, sha=sha, root_url=root[1] if root else '', bottles={
             platform: dict(cellar=cellar.removeprefix(':').strip('"'), sha256=digest,

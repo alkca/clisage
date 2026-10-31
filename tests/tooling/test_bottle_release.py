@@ -300,3 +300,16 @@ class BottleRelease(unittest.TestCase):
         workflow = (ROOT / '.github/workflows/bottles.yml').read_text()
         self.assertIn('os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]', workflow)
         self.assertNotIn('macos-15-intel', workflow)
+
+    def test_formula_aligns_platforms_with_mixed_bottle_relocation_settings(self):
+        import homebrew_release
+        manifest = self.manifest()
+        manifest['bottles']['arm64_linux']['cellar'] = 'any'
+        manifest['bottles']['x86_64_linux']['cellar'] = 'any'
+        original = (ROOT / 'Formula/clisage.rb').read_text()
+        formula = homebrew_release.update_formula(original, self.tag, self.sha, manifest)
+        lines = [line for line in formula.splitlines() if line.startswith('    sha256 ')]
+        columns = [next(line.index(platform + ':') for platform in self.module.PLATFORMS if platform + ':' in line)
+                   for line in lines]
+        self.assertEqual(len(set(columns)), 1, 'brew style requires aligned platform labels as well as hashes')
+        self.assertEqual(homebrew_release.strip_stable(formula), homebrew_release.strip_stable(original))
