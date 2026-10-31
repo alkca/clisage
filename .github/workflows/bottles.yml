@@ -1,11 +1,43 @@
-name: Prepare Homebrew bottles
+name: Publish Homebrew bottles
 on:
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
 permissions:
   contents: read
+  actions: read
+concurrency:
+  group: bottles-${{ inputs.release_tag }}
+  cancel-in-progress: false
 jobs:
+  validate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.verify.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
+        with:
+          version: '0.13.5'
+          enable-cache: false
+      - name: Verify release tag belongs to CI-validated main history
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          sha=$(uv run --no-project --offline python scripts/bottle_release.py verify --tag "$RELEASE_TAG")
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
   bottle:
-    if: github.ref_type == 'tag'
+    needs: validate
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
       id-token: write
@@ -19,10 +51,11 @@ jobs:
       - name: Validate release tag syntax
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: '[[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.validate.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
@@ -35,7 +68,7 @@ jobs:
       - name: Prepare a stable formula pinned to the release commit
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           brew tap clisage/release "$GITHUB_WORKSPACE"
           uv run --no-project --offline python scripts/prepare_bottle.py \
@@ -43,7 +76,7 @@ jobs:
       - name: Build and test the bottle
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           brew install --build-bottle --yes clisage/release/clisage
           [[ "$(clisage --version)" == "clisage ${RELEASE_TAG#v}" ]]
@@ -51,7 +84,7 @@ jobs:
           brew style "$(brew --repository clisage/release)/Formula/clisage.rb"
           mkdir dist
           cd dist
-          brew bottle --json clisage/release/clisage
+          brew bottle --json --root-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG" clisage/release/clisage
           brew reinstall ./*.bottle.*.tar.gz
           brew test clisage/release/clisage
       - name: Sign bottle provenance
@@ -67,10 +100,36 @@ jobs:
         run: |
           cp "$BUNDLE" dist/provenance.sigstore.json
           cp "$(brew --repository clisage/release)/Formula/clisage.rb" dist/clisage.rb
-      # Storage in workflow artifacts only; no tag, release, or package publication.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: clisage-bottle-${{ matrix.os }}
+          name: clisage-bottle-${{ inputs.release_tag }}-${{ matrix.os }}
           path: dist/*
           if-no-files-found: error
           retention-days: 14
+  publish:
+    needs: bottle
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      # Publish only artifacts built by this trusted run, never PR artifacts.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
+        with:
+          version: '0.13.5'
+          enable-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: clisage-bottle-${{ inputs.release_tag }}-*
+          path: bottle-artifacts
+      - name: Publish complete tested bottles and provenance to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: uv run --no-project --offline python scripts/bottle_release.py publish --tag "$RELEASE_TAG" --artifacts bottle-artifacts

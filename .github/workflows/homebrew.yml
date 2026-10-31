@@ -57,6 +57,7 @@ jobs:
         run: |
           brew uninstall clisage/ci/clisage
           brew install --yes clisage/ci/clisage
+          brew info --json=v2 clisage/ci/clisage > "$RUNNER_TEMP/clisage-receipt.json"
           uv run --no-project --offline python scripts/check_stable_formula.py \
-            "$(brew list --versions clisage/ci/clisage)" "$(clisage --version)"
+            "$(brew list --versions clisage/ci/clisage)" "$(clisage --version)" "$RUNNER_TEMP/clisage-receipt.json"
           brew test clisage/ci/clisage

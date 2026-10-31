@@ -1,8 +1,8 @@
 # Clisage
 
-A small Rust shell AI assistant for macOS and Linux. Early development: install
-from source with Homebrew or Cargo. SemVer tags identify CI-validated main
-commits; prebuilt packages are not published.
+A small Rust shell AI assistant for macOS and Linux. Install with Homebrew or
+build from source with Cargo. SemVer tags identify CI-validated main commits;
+the release pipeline publishes prebuilt Homebrew bottles for new releases.
 
 ## Install with Homebrew
 
@@ -13,9 +13,10 @@ brew tap alkca/clisage https://github.com/alkca/clisage
 brew install alkca/clisage/clisage
 ```
 
-Homebrew installs the Rust build toolchain and `pass`/GPG dependencies, then
-compiles Clisage. The first install can take several minutes. There are no
-prebuilt bottles yet. Homebrew does not create a GPG key or initialize your
+Homebrew downloads a prebuilt bottle when one is available for your platform,
+plus the `pass`/GPG dependencies. Otherwise it installs the Rust build toolchain
+and compiles Clisage, which can take several minutes. Older releases predating
+automatic bottle publication build from source. Homebrew does not create a GPG key or initialize your
 password store: if needed, run `pass init -p clisage YOUR_GPG_KEY_ID` with an existing encryption-capable key,
 then `clisage auth login`.
 
@@ -275,7 +276,8 @@ On Debian/Ubuntu, install `zsh pass gnupg dbus gnome-keyring` before running the
 The tooling suite uses `uv run --no-project --offline python -m unittest discover
 -s tests/tooling -v` and requires the repository-pinned release-plz binary on PATH.
 Profiles remain follow-up work. Distribution preparation is described below;
-SemVer tagging is automatic after main CI; merges, GitHub Releases, and bottle publication are not.
+SemVer tagging, GitHub Releases, bottle publication, and formula PR creation are
+automatic after main CI. PR review and merging remain manual.
 
 License: MIT OR Apache-2.0.
 
@@ -353,28 +355,41 @@ closely spaced merges and out-of-order CI completions cannot skip a version or
 release a later commit ahead of an unvalidated earlier one. Existing tags are
 immutable; retries are idempotent, and conflicting tags, ambiguous versions,
 or gaps in the release history fail closed. The workflow creates lightweight
-Git tags and prepares stable Homebrew formula update PRs. It never rewrites main,
-moves tags, creates GitHub Releases, or publishes crates, binaries, or bottles. Default token permissions remain
-read-only; only the trusted main tagging job receives contents/PR-write and
-Actions-dispatch access.
-It checks out trusted main and never executes PR-run code or downloads PR-run
-artifacts with that token.
+Git tags, builds and tests Homebrew bottles, publishes them as GitHub Release
+assets, and prepares stable Homebrew formula update PRs. It never rewrites main,
+moves tags, or publishes crates. Default token permissions remain read-only.
+Bottle build jobs receive provenance-signing permissions but no contents-write
+access; separate trusted main jobs publish releases and prepare formula PRs.
+They never execute PR-run code or download PR-run artifacts with write tokens.
 
-After tagging, the workflow opens a `chore(homebrew): update clisage to vX.Y.Z`
-PR with the immutable tag, full source revision, and formula version. It explicitly
+After tagging, the workflow builds and tests bottles on Linux and macOS for
+Intel and ARM. It creates a draft GitHub Release, uploads all four bottles,
+provenance bundles, and a checksum manifest, verifies the uploaded digests, and
+publishes the release only when the complete set is present. Published assets
+are never overwritten. This starts with the merge installing automatic bottle
+publication; earlier tags are not retroactively published.
+
+The workflow then opens a `chore(homebrew): update clisage to vX.Y.Z`
+PR with the immutable tag, full source revision, formula version, and bottle
+download URLs and platform checksums from the latest published release. It explicitly
 dispatches CI and Homebrew checks because GitHub suppresses events from its own
 token. Normal review, required checks, and merging still apply. Stable upgrades
 become available when that formula PR merges; a tag alone does not update the tap.
 Linux and macOS CI always test the exact PR HEAD. Formula changes additionally
-build and test the stable install; manual Homebrew dispatches on main also do so.
+install and test the stable release, verifying that formulas with bottles were
+actually installed from a bottle; manual Homebrew dispatches on main also do so.
 Unrelated changes avoid rebuilding the previous release.
 Stable checks reject a downgrade relative to main, including an obsolete update PR.
 Closed update PRs are left closed; reopen them to retry. Interrupted runs retry
-without force-pushing or changing existing branch content.
+without force-pushing or changing existing branch content. Failed release builds
+leave the formula unchanged. The next reconciliation retries unpublished tags;
+the **Tag SemVer releases** workflow can also be manually dispatched on main.
+Incomplete drafts stay unpublished, and conflicting existing assets fail closed
+rather than replacing previously uploaded bytes.
 
 Formula synchronization commits are exempt from release tagging to prevent a
 release/update loop. The exemption requires the generated title, only a stable
-source/version change in `Formula/clisage.rb`, and an existing higher release tag
+source/version/bottle-metadata change in `Formula/clisage.rb`, and an existing higher release tag
 at an ancestor commit. Changes to dependencies, installation logic, tests, or any
 other file still receive a release tag.
 
@@ -441,17 +456,16 @@ are not configured. The workflow does not create tags or GitHub Releases, push
 packages, or publish download URLs. It uses read-only repository contents access
 and grants signing permissions only to the manual build job.
 
-The **Prepare Homebrew bottles** workflow is also manual and runs only on an
-existing stable release tag. Dispatch `bottles.yml` at a CI-validated tag when
-bottle preparation is wanted. It requires a clean checkout at that tag, with
-a tag version at or above the manifest floor, and generates a temporary stable formula
-pinned to the public Git commit, builds and tests bottles on the same four
-platforms, then reinstalls and retests each local bottle. Bottle archives, JSON
-metadata, the source formula, and signed provenance are saved as workflow
-artifacts. The public stable/HEAD formula and the SHA-pinned Homebrew tests on every PR
-remain in place.
+The **Publish Homebrew bottles** reusable workflow is called automatically by
+**Tag SemVer releases**. It first verifies the release tag is an ancestor of main
+with successful required main-push checks, then pins each build to that exact
+commit. It requires a clean checkout at the tag, with a version at or above the
+manifest floor. Each platform builds and tests a temporary stable formula,
+bottles it, and reinstalls and retests the bottle before signing provenance.
+The publication job accepts only the complete artifacts from that trusted run.
+Bottles and provenance are permanently hosted as assets of the corresponding
+GitHub Release; Actions artifacts remain available for 14 days for debugging.
 
-Publishing bottles requires a separate reviewed change with the final hosting
-URL and platform checksums in the stable formula. No bottle workflow creates a
-tag, publishes a release, or uploads to a package registry. There are no public
-prebuilt downloads until that explicitly authorized publishing step occurs.
+The generated formula PR still requires manual review and merge approval.
+After it merges, normal stable `brew upgrade` installs use a compatible bottle
+instead of compiling Rust. HEAD installs continue to build from source.

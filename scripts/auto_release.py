@@ -149,12 +149,12 @@ class GitHub:
             raise ValueError('invalid repository identity')
         self.repository = repository
 
-    def api(self, route, *, pages=False, fields=None):
+    def api(self, route, *, pages=False, fields=None, method=None):
         args = ['gh', 'api', f'repos/{self.repository}/{route}']
         if pages:
             args += ['--paginate', '--slurp']
         if fields:
-            args += ['--method', 'POST', '--input', '-']
+            args += ['--method', method or 'POST', '--input', '-']
         result = subprocess.run(args, input=json.dumps(fields) if fields else None,
                                 text=True, capture_output=True, timeout=120)
         if result.returncode:

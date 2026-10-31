@@ -14,6 +14,22 @@ STABLE_BLOCK = re.compile(
     r'      tag:      "(v[0-9]+\.[0-9]+\.[0-9]+)",\n'
     r'      revision: "([0-9a-f]{40})"\n'
     r'  version "([0-9]+\.[0-9]+\.[0-9]+)"\n', re.MULTILINE)
+BOTTLE_BLOCK = re.compile(r'^  bottle do\n(?:    [^\n]*\n)+  end\n\n', re.MULTILINE)
+
+
+def bottle_block(manifest):
+    from bottle_release import PLATFORMS, validate_manifest
+    validate_manifest(manifest, 'alkca/clisage', manifest['tag'], manifest['sha'])
+    lines = ['  bottle do', f'    root_url "{manifest["root_url"]}"']
+    prefixes = []
+    for platform in PLATFORMS:
+        item = manifest['bottles'][platform]
+        cellar = item['cellar']
+        cellar = ':' + cellar if cellar.startswith('any') else f'"{cellar}"'
+        prefixes.append((f'    sha256 cellar: {cellar}, {platform}:', item['sha256']))
+    width = max(len(prefix) for prefix, _ in prefixes)
+    lines.extend(f'{prefix:<{width}} "{digest}"' for prefix, digest in prefixes)
+    return '\n'.join(lines) + '\n  end\n\n'
 
 
 def stable_source(formula):
@@ -32,10 +48,27 @@ def stable_source(formula):
 
 def strip_stable(formula):
     stable_source(formula)
-    return STABLE_BLOCK.sub('', formula)
+    blocks = BOTTLE_BLOCK.findall(formula)
+    if len(blocks) > 1 or formula.count('  bottle do') != len(blocks):
+        raise ValueError('unexpected bottle declarations')
+    if blocks:
+        source = stable_source(formula)
+        if not source:
+            raise ValueError('bottles require a stable source')
+        tag, sha = source
+        root = re.search(r'^    root_url "([^"\n]+)"$', blocks[0], re.MULTILINE)
+        entries = re.findall(r'^    sha256 cellar: (:any(?:_skip_relocation)?|"[^"\n]+"), '
+                             r'([a-z0-9_]+): +"([a-f0-9]{64})"$', blocks[0], re.MULTILINE)
+        manifest = dict(schema=1, tag=tag, sha=sha, root_url=root[1] if root else '', bottles={
+            platform: dict(cellar=cellar.removeprefix(':').strip('"'), sha256=digest,
+                           filename=f'clisage-{tag[1:]}.{platform}.bottle.tar.gz')
+            for cellar, platform, digest in entries})
+        if bottle_block(manifest) != blocks[0]:
+            raise ValueError('bottle block is not generated release metadata')
+    return BOTTLE_BLOCK.sub('', STABLE_BLOCK.sub('', formula))
 
 
-def update_formula(formula, tag, sha):
+def update_formula(formula, tag, sha, manifest=None):
     if not tag.startswith('v'):
         raise ValueError('expected a stable release tag')
     version(tag[1:])
@@ -51,6 +84,13 @@ def update_formula(formula, tag, sha):
     result, count = re.subn(r'(?=^  license )', lambda _: block, formula, flags=re.MULTILINE)
     if count != 1:
         raise ValueError('expected exactly one formula license declaration')
+    if manifest is not None:
+        from bottle_release import validate_manifest
+        validate_manifest(manifest, 'alkca/clisage', tag, sha)
+        result, count = re.subn(r'(^  head [^\n]*\n\n)', lambda match: match[0] + bottle_block(manifest),
+                                result, flags=re.MULTILINE)
+        if count != 1:
+            raise ValueError('expected a single bottle insertion point')
     return result
 
 
@@ -74,18 +114,20 @@ def metadata_sync(root, sha, tags):
         return False
 
 
-def publish(root, github):
+def publish(root, github, manifest=None):
     tags = github.tags()
     stable = [(version(tag[1:]), tag, sha) for tag, sha in tags.items()
               if re.fullmatch(r'v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', tag)]
     if not stable:
         return None
-    _, tag, sha = max(stable)
+    _, tag, sha = max(stable) if manifest is None else (version(manifest['tag'][1:]), manifest['tag'], manifest['sha'])
+    if tags.get(tag) != sha:
+        raise ValueError('formula release differs from immutable tag')
     formula = (root / 'Formula/clisage.rb').read_text()
     current = stable_source(formula)
     if current and version(current[0][1:]) > version(tag[1:]):
         raise ValueError('refusing to downgrade stable Homebrew')
-    updated = update_formula(formula, tag, sha)
+    updated = update_formula(formula, tag, sha, manifest)
     if updated == formula:
         return None
     if current and current[0] == tag:
@@ -116,7 +158,9 @@ def publish(root, github):
                 raise ValueError('existing Homebrew branch differs; manual review required') from None
         github.api('pulls', fields={'title': f'chore(homebrew): update clisage to {tag}', 'head': branch,
                                    'base': 'main', 'body': f'Update the stable Homebrew source to {tag} at `{sha}`.\n\n'
-                                   'Generated from an immutable, CI-validated release tag. Normal review and required '
+                                   'Generated from an immutable, CI-validated release tag. '
+                                   + ('Includes tested bottles published to GitHub Releases. ' if manifest else '')
+                                   + 'Normal review and required '
                                    'checks apply; this workflow does not approve or merge this PR.'})
     # GITHUB_TOKEN-created PR events do not trigger checks automatically.
     for workflow in ('ci.yml', 'homebrew.yml'):
