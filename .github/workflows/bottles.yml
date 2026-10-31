@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Validate release tag syntax
@@ -85,13 +85,13 @@ jobs:
           mkdir dist
           cd dist
           brew bottle --json --root-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG" clisage/release/clisage
-          brew reinstall ./*.bottle.*.tar.gz
+          brew reinstall ./*.bottle.tar.gz
           brew test clisage/release/clisage
       - name: Sign bottle provenance
         id: attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-path: dist/*.bottle.*.tar.gz
+          subject-path: dist/*.bottle.tar.gz
           create-storage-record: false
       - name: Include verification material and generated formula
         shell: bash

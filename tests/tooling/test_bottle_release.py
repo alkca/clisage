@@ -1,9 +1,11 @@
 """Release publishing uses fake artifacts and APIs; never contact a provider."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import Mock, patch
 
@@ -50,7 +52,7 @@ class BottleRelease(unittest.TestCase):
         manifest, assets = self.module.collect(self.root, self.github.repository, self.tag, self.sha)
         self.assertEqual(set(manifest['bottles']), set(self.module.PLATFORMS))
         self.assertEqual(manifest['sha'], self.sha)
-        self.assertEqual(len(assets), 9)  # four bottles, four provenance bundles, manifest
+        self.assertEqual(len(assets), 7)  # three bottles, three provenance bundles, manifest
         self.assertTrue(all(path.name != 'clisage.rb' for path in assets))
         archive = next(path for path in self.root.rglob('*.tar.gz') if path.parent.name != 'release-assets')
         archive.write_bytes(b'corrupt fixture')
@@ -200,8 +202,7 @@ class BottleRelease(unittest.TestCase):
         self.assertIn(f'    root_url "{manifest["root_url"]}"', formula)
         self.assertIn('cellar: :any_skip_relocation', formula)
         self.assertLess(formula.index('  head '), formula.index('  bottle do'))
-        self.assertLess(formula.index(' arm64_sequoia:'), formula.index(' sequoia:'))
-        self.assertLess(formula.index(' sequoia:'), formula.index(' arm64_linux:'))
+        self.assertLess(formula.index(' arm64_sequoia:'), formula.index(' arm64_linux:'))
         digest_columns = [line.rindex('"') - 65 for line in formula.splitlines() if line.startswith('    sha256 ')]
         # All hashes, including different-length platform names, align for brew style.
         self.assertLessEqual(len(set(digest_columns)), 1)
@@ -243,3 +244,34 @@ class BottleRelease(unittest.TestCase):
         formula.write_text(formula.read_text().replace(self.sha, 'b' * 40))
         with self.assertRaises(ValueError):
             self.manifest()
+
+    def test_workflow_reinstalls_and_attests_homebrews_actual_bottle_filename(self):
+        import subprocess
+        workflow = (ROOT / '.github/workflows/bottles.yml').read_text()
+        step = workflow.split('      - name: Build and test the bottle\n', 1)[1]
+        commands = textwrap.dedent(step.split('        run: |\n', 1)[1].split('      - name:', 1)[0])
+        binaries = self.root / 'bin'
+        binaries.mkdir()
+        brew = binaries / 'brew'
+        brew.write_text('#!/bin/bash\nset -eu\ncase "$1" in\n'
+                        'bottle) touch clisage--0.2.3.arm64_sequoia.bottle.tar.gz;;\n'
+                        'reinstall) [[ -f "$2" ]] || { echo "bottle glob did not resolve" >&2; exit 1; };;\n'
+                        'esac\n')
+        brew.chmod(0o755)
+        clisage = binaries / 'clisage'
+        clisage.write_text('#!/bin/sh\necho "clisage 0.2.3"\n')
+        clisage.chmod(0o755)
+        environment = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
+                           RELEASE_TAG=self.tag, GITHUB_REPOSITORY='alkca/clisage')
+        result = subprocess.run(['bash', '-euo', 'pipefail', '-c', commands], cwd=self.root,
+                                env=environment, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        subject = workflow.split('          subject-path: ', 1)[1].splitlines()[0]
+        self.assertEqual(len(list(self.root.glob(subject))), 1,
+                         'provenance must attest the bottle produced by brew bottle')
+
+    def test_release_platforms_do_not_require_unsupported_intel_macos_dependencies(self):
+        self.assertEqual(set(self.module.PLATFORMS), {'arm64_sequoia', 'arm64_linux', 'x86_64_linux'})
+        workflow = (ROOT / '.github/workflows/bottles.yml').read_text()
+        self.assertIn('os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]', workflow)
+        self.assertNotIn('macos-15-intel', workflow)
