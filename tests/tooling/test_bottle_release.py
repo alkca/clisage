@@ -1,9 +1,11 @@
 """Release publishing uses fake artifacts and APIs; never contact a provider."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import Mock, patch
 
@@ -243,3 +245,28 @@ class BottleRelease(unittest.TestCase):
         formula.write_text(formula.read_text().replace(self.sha, 'b' * 40))
         with self.assertRaises(ValueError):
             self.manifest()
+
+    def test_workflow_reinstalls_and_attests_homebrews_actual_bottle_filename(self):
+        import subprocess
+        workflow = (ROOT / '.github/workflows/bottles.yml').read_text()
+        step = workflow.split('      - name: Build and test the bottle\n', 1)[1]
+        commands = textwrap.dedent(step.split('        run: |\n', 1)[1].split('      - name:', 1)[0])
+        binaries = self.root / 'bin'
+        binaries.mkdir()
+        brew = binaries / 'brew'
+        brew.write_text('#!/bin/bash\nset -eu\ncase "$1" in\n'
+                        'bottle) touch clisage--0.2.3.arm64_sequoia.bottle.tar.gz;;\n'
+                        'reinstall) [[ -f "$2" ]] || { echo "bottle glob did not resolve" >&2; exit 1; };;\n'
+                        'esac\n')
+        brew.chmod(0o755)
+        clisage = binaries / 'clisage'
+        clisage.write_text('#!/bin/sh\necho "clisage 0.2.3"\n')
+        clisage.chmod(0o755)
+        environment = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
+                           RELEASE_TAG=self.tag, GITHUB_REPOSITORY='alkca/clisage')
+        result = subprocess.run(['bash', '-euo', 'pipefail', '-c', commands], cwd=self.root,
+                                env=environment, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        subject = workflow.split('          subject-path: ', 1)[1].splitlines()[0]
+        self.assertEqual(len(list(self.root.glob(subject))), 1,
+                         'provenance must attest the bottle produced by brew bottle')
