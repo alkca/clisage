@@ -92,7 +92,9 @@ class BottleRelease(unittest.TestCase):
         self.assertEqual(routes, ['releases?per_page=100', 'releases', 'releases/42', 'releases/42'])
         creation = self.github.api.call_args_list[1].kwargs['fields']
         self.assertTrue(creation['draft'])
-        self.assertEqual(creation['target_commitish'], self.sha)
+        self.assertEqual(creation['tag_name'], self.tag)
+        self.assertNotIn('target_commitish', creation,
+                         'an existing validated tag supplies the immutable release target')
         self.assertEqual(self.github.api.call_args_list[-1].kwargs['fields'], {'draft': False})
         self.assertEqual(command.call_count, 1)
         self.assertNotIn('--clobber', command.call_args.args[0])
