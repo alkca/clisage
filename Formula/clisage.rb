@@ -11,8 +11,8 @@ class Clisage < Formula
   bottle do
     root_url "https://github.com/alkca/clisage/releases/download/v0.3.0"
     sha256 cellar: :any_skip_relocation, arm64_sequoia: "7dcf4541b9342b04e63fbb211434bf3c544a57739fd2203b8bd717eb8148a5f7"
-    sha256 cellar: :any, arm64_linux:                   "7aab955a82b7e5920a24c0fabe54238a5567be93c642c968fa82fc9f14cc9fbf"
-    sha256 cellar: :any, x86_64_linux:                  "6312f73be480625cdbe7faa0181189e3bb2de98fe7cd72275e152ba94b73bf76"
+    sha256 cellar: :any,                 arm64_linux:   "7aab955a82b7e5920a24c0fabe54238a5567be93c642c968fa82fc9f14cc9fbf"
+    sha256 cellar: :any,                 x86_64_linux:  "6312f73be480625cdbe7faa0181189e3bb2de98fe7cd72275e152ba94b73bf76"
   end
 
   depends_on "rust" => :build
