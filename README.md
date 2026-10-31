@@ -362,8 +362,8 @@ Bottle build jobs receive provenance-signing permissions but no contents-write
 access; separate trusted main jobs publish releases and prepare formula PRs.
 They never execute PR-run code or download PR-run artifacts with write tokens.
 
-After tagging, the workflow builds and tests bottles on Linux and macOS for
-Intel and ARM. It creates a draft GitHub Release, uploads all four bottles,
+After tagging, the workflow builds and tests bottles for Apple Silicon macOS
+and Intel/ARM Linux. It creates a draft GitHub Release, uploads all three bottles,
 provenance bundles, and a checksum manifest, verifies the uploaded digests, and
 publishes the release only when the complete set is present. Published assets
 are never overwritten. This starts with the merge installing automatic bottle
@@ -468,4 +468,7 @@ GitHub Release; Actions artifacts remain available for 14 days for debugging.
 
 The generated formula PR still requires manual review and merge approval.
 After it merges, normal stable `brew upgrade` installs use a compatible bottle
-instead of compiling Rust. HEAD installs continue to build from source.
+instead of compiling Rust. Intel Macs and HEAD installs continue to build from
+source. Intel macOS is excluded from automatic bottles because Homebrew stopped
+publishing its dependency bottles in September 2026; a missing Intel dependency
+must not block releases for supported platforms.

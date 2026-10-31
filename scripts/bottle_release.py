@@ -11,7 +11,8 @@ import tempfile
 
 from auto_release import GitHub, git, version
 
-PLATFORMS = ('arm64_sequoia', 'sequoia', 'arm64_linux', 'x86_64_linux')
+# Homebrew stopped publishing Intel macOS dependency bottles in September 2026.
+PLATFORMS = ('arm64_sequoia', 'arm64_linux', 'x86_64_linux')
 CELLARS = ('any', 'any_skip_relocation', '/opt/homebrew/Cellar', '/usr/local/Cellar',
            '/home/linuxbrew/.linuxbrew/Cellar')
 
