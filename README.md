@@ -461,7 +461,8 @@ The **Publish Homebrew bottles** reusable workflow is called automatically by
 with successful required main-push checks, then pins each build to that exact
 commit. It requires a clean checkout at the tag, with a version at or above the
 manifest floor. Each platform builds and tests a temporary stable formula,
-bottles it, and reinstalls and retests the bottle before signing provenance.
+bottles it, and installs and retests it through a temporary bottle formula before
+signing provenance. The installation receipt must confirm an actual bottle pour.
 The publication job accepts only the complete artifacts from that trusted run.
 Bottles and provenance are permanently hosted as assets of the corresponding
 GitHub Release; Actions artifacts remain available for 14 days for debugging.

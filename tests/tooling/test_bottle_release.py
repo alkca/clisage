@@ -286,6 +286,7 @@ class BottleRelease(unittest.TestCase):
         self.assertEqual(formula.read_text(), 'fixture source formula\n')
         self.assertFalse((self.root / 'dist/clisage-0.2.3.arm64_sequoia.bottle.tar.gz').exists())
         self.assertFalse((self.root / 'dist/local-test.json').exists())
+        self.assertFalse((self.root / 'dist/bottle-receipt.json').exists())
         metadata = json.loads((self.root / 'dist/clisage.bottle.json').read_text())
         self.assertEqual(metadata['clisage/release/clisage']['bottle']['root_url'], 'https://example.invalid')
         subject = workflow.split('          subject-path: ', 1)[1].splitlines()[0]

@@ -108,7 +108,7 @@ jobs:
           uv run --no-project --offline python -c \
             'import json, sys; assert any(item.get("poured_from_bottle") is True for formula in json.load(sys.stdin)["formulae"] for item in formula["installed"])' < bottle-receipt.json
           cp source-formula.rb "$formula"
-          rm source-formula.rb local-test.json
+          rm source-formula.rb local-test.json bottle-receipt.json
           for bottle in ./clisage--*.bottle.tar.gz; do rm "${bottle/--/-}"; done
       - name: Sign bottle provenance
         id: attest
