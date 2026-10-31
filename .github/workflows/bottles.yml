@@ -85,8 +85,31 @@ jobs:
           mkdir dist
           cd dist
           brew bottle --json --root-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG" clisage/release/clisage
-          brew reinstall ./*.bottle.tar.gz
+          formula="$(brew --repository clisage/release)/Formula/clisage.rb"
+          cp "$formula" source-formula.rb
+          # Test through a temporary formula URL without allowing package paths.
+          uv run --no-project --offline python - <<'PY'
+          import json
+          from pathlib import Path
+          metadata = list(Path.cwd().glob('*.bottle.json'))
+          assert len(metadata) == 1
+          document = json.loads(metadata[0].read_text())
+          for entry in document.values():
+              entry['bottle']['root_url'] = Path.cwd().as_uri()
+          Path('local-test.json').write_text(json.dumps(document))
+          PY
+          brew bottle --merge --write --no-commit local-test.json
+          for bottle in ./clisage--*.bottle.tar.gz; do cp "$bottle" "${bottle/--/-}"; done
+          brew uninstall clisage/release/clisage
+          brew install --force-bottle --yes clisage/release/clisage
           brew test clisage/release/clisage
+          [[ "$(clisage --version)" == "clisage ${RELEASE_TAG#v}" ]]
+          brew info --json=v2 clisage/release/clisage > bottle-receipt.json
+          uv run --no-project --offline python -c \
+            'import json, sys; assert any(item.get("poured_from_bottle") is True for formula in json.load(sys.stdin)["formulae"] for item in formula["installed"])' < bottle-receipt.json
+          cp source-formula.rb "$formula"
+          rm source-formula.rb local-test.json
+          for bottle in ./clisage--*.bottle.tar.gz; do rm "${bottle/--/-}"; done
       - name: Sign bottle provenance
         id: attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
