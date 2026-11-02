@@ -14,7 +14,7 @@ _clisage_zsh_widget() {
             message='Clisage: empty suggestion; original input kept.'
         fi
     else
-        message='Clisage: request failed or cancelled; original input kept.'
+        message='Clisage: request failed or cancelled; original input kept. Check `clisage auth status`; for authentication setup, run `clisage auth login`, then retry Alt-G.'
     fi
     zle reset-prompt
     zle -R

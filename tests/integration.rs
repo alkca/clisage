@@ -246,6 +246,16 @@ fn zsh_keeps_failure_messages_visible_after_refreshing_the_prompt() {
         .unwrap();
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("request failed or cancelled"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("clisage auth status"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("clisage auth login"));
+}
+
+#[test]
+fn both_shells_include_authentication_recovery_in_failure_guidance() {
+    for shell in ["zsh", "bash"] {
+        let script = String::from_utf8(integration(shell)).unwrap();
+        assert!(script.contains("Check `clisage auth status`; for authentication setup, run `clisage auth login`, then retry Alt-G."));
+    }
 }
 
 #[test]
