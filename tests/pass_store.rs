@@ -9,6 +9,7 @@ fn missing_store_reports_initialization_guidance() {
     assert!(error.contains("pass init -p clisage YOUR_GPG_KEY_ID"));
     assert!(error.contains("gpg --list-secret-keys --keyid-format LONG"));
     assert!(error.contains("[E]"));
+    assert!(error.contains("key or subkey with encryption capability ([E])"));
     assert!(error.contains("fictional example: `pass init -p clisage 0123456789ABCDEF`"));
     assert!(error.contains("retry `clisage auth login`"));
     assert!(!root.path().join("clisage").exists());

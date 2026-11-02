@@ -39,7 +39,7 @@ pub fn check_pass_store(root: &Path, recipient_override: bool) -> Result<()> {
             }
         }
     }
-    Err("pass is not initialized for Clisage; list your GPG keys with `gpg --list-secret-keys --keyid-format LONG` and choose a key with encryption capability ([E]). Run `pass init -p clisage YOUR_GPG_KEY_ID` using your key's ID (fictional example: `pass init -p clisage 0123456789ABCDEF`), then retry `clisage auth login`".into())
+    Err("pass is not initialized for Clisage; list your GPG keys with `gpg --list-secret-keys --keyid-format LONG` and choose a key or subkey with encryption capability ([E]). Run `pass init -p clisage YOUR_GPG_KEY_ID` using your key's ID (fictional example: `pass init -p clisage 0123456789ABCDEF`), then retry `clisage auth login`".into())
 }
 
 #[derive(Serialize, Deserialize)]
