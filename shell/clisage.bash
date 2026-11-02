@@ -15,7 +15,9 @@ _clisage_bash_widget() {
             printf 'Clisage: empty suggestion; original input kept.\n' >&2
         fi
     else
-        printf 'Clisage: request failed or cancelled; original input kept.\n' >&2
+        # Backticks mark commands in the guidance; they must remain literal.
+        # shellcheck disable=SC2016
+        printf 'Clisage: request failed or cancelled; original input kept. Check `clisage auth status`; for authentication setup, run `clisage auth login`, then retry Alt-G.\n' >&2
     fi
     # Assigning READLINE_LINE never accepts or executes the line.
     return 0
