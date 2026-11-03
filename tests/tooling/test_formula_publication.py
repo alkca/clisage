@@ -92,7 +92,7 @@ class ProtectedMerge(unittest.TestCase):
         self.module = formula_publication
         self.github = Mock(repository='alkca/clisage')
         self.sha = 'a' * 40
-        self.pr = dict(number=42, draft=False, user={'login': 'github-actions[bot]'},
+        self.pr = dict(number=42, state='open', draft=False, user={'login': 'github-actions[bot]'},
                        title='chore(homebrew): update clisage to v0.2.0',
                        head={'sha': self.sha, 'repo': {'full_name': 'alkca/clisage'}},
                        base={'sha': 'b' * 40})
@@ -158,9 +158,16 @@ class ProtectedMerge(unittest.TestCase):
             self.merge()
 
     def test_retries_after_merge_are_noops_and_never_recreate_prs(self):
-        self.github.api.return_value = []
-        self.merge()
+        self.github.api.return_value = [dict(self.pr, state='closed', merged_at='2026-01-01T00:00:00Z')]
+        self.assertTrue(self.module.merge(ROOT, self.github, 'homebrew-v0.2.0', self.sha))
         self.github.api.assert_called_once()
+
+    def test_missing_pr_keeps_polling_and_manually_closed_pr_does_not_report_success(self):
+        self.github.api.return_value = []
+        self.assertFalse(self.module.merge(ROOT, self.github, 'homebrew-v0.2.0', self.sha))
+        self.github.api.return_value = [dict(self.pr, state='closed', merged_at=None)]
+        with self.assertRaises(ValueError):
+            self.merge()
 
     def test_only_matching_generated_pr_workflow_runs_are_authorized(self):
         run = dict(id=12, path='.github/workflows/ci.yml', event='pull_request',

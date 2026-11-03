@@ -67,10 +67,16 @@ def merge(root, github, branch, sha, authorize=False):
     if not re.fullmatch('[a-f0-9]{40}', sha):
         raise ValueError('invalid formula commit')
     owner = github.repository.split('/')[0]
-    query = urlencode(dict(state='open', head=f'{owner}:{branch}', base='main', per_page=100))
+    query = urlencode(dict(state='all', head=f'{owner}:{branch}', base='main', per_page=100))
     prs = github.api('pulls?' + query)
     if not prs:
-        return True
+        print('Waiting for the generated formula PR to become discoverable.')
+        return False
+    if not any(pr['state'] == 'open' for pr in prs):
+        if any(pr.get('merged_at') and pr['head']['sha'] == sha for pr in prs):
+            return True
+        raise ValueError('formula PR was closed without merging this exact head')
+    prs = [pr for pr in prs if pr['state'] == 'open']
     if len(prs) != 1:
         raise ValueError('ambiguous formula update')
     pr = prs[0]
