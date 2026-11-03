@@ -389,13 +389,30 @@ unchanged PR through normal branch protections once all required checks pass.
 It polls with a ten-minute deadline instead of relying on suppressed downstream
 workflow events. Execution approval is scoped to the generated PR, exact SHA,
 repository, bot author, and trusted CI/Homebrew workflow paths.
+This requires a dedicated private GitHub App installed only on this repository,
+with Actions, Contents, and Pull requests write access and Checks read access.
+Disable webhooks; no events, user permissions, organization permissions, or branch
+protection bypass are needed. Configure the repository Actions variable
+`FORMULA_APP_CLIENT_ID` and secret `FORMULA_APP_PRIVATE_KEY`. The pinned official
+App token action creates a short-lived token scoped to this one repository and
+these four permissions, then revokes it at job completion. The default workflow
+token remains read-only. GitHub's default token cannot approve workflow runs;
+missing App configuration fails with setup guidance. Keys and tokens are never
+logged or committed. Do not substitute a personal interactive CLI token.
+
+A repository administrator must register and install the App, generate its
+private key, and configure the variable and secret before unattended formula
+publication can work. The private key belongs in Actions secrets, not chat or
+source control. Once configured, retry the **Merge verified Homebrew metadata**
+workflow on main with the pending `homebrew-vX.Y.Z` branch as its input.
+
 It never approves a PR or bypasses protections. Changed heads, failed checks,
 behavioral changes, or conflicting metadata cannot be automatically merged.
 Review feedback, including Copilot comments, holds publication for manual disposition.
 Stable `brew update` and `brew upgrade clisage` pick up the formula after this
 publication step. Lightweight workflow runs may still appear for metadata updates;
-they do not rebuild the release. A GITHUB_TOKEN merge does not trigger another
-main-push build cycle.
+they do not rebuild the release. An App-token merge can trigger metadata-only
+main checks, which reuse the verified tests and do not create another release.
 
 All code and behavioral formula PRs retain full Linux/macOS Rust, quality, and
 checkout-pinned Homebrew builds. Formula behavior changes additionally install
