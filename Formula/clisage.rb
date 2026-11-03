@@ -2,17 +2,17 @@ class Clisage < Formula
   desc "Shell AI assistant with encrypted credentials and Unix pipelines"
   homepage "https://github.com/alkca/clisage"
   url "https://github.com/alkca/clisage.git",
-      tag:      "v0.3.4",
-      revision: "4feb75bd0ea77a777c5f96bb21c924a2f2e81804"
-  version "0.3.4"
+      tag:      "v0.3.5",
+      revision: "fbcff07b8eb2e3e5ea5972a60d466382401ca107"
+  version "0.3.5"
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/alkca/clisage.git", branch: "main"
 
   bottle do
-    root_url "https://github.com/alkca/clisage/releases/download/v0.3.4"
-    sha256 cellar: :any_skip_relocation, arm64_sequoia: "5d9253e23ac350618e9927fdc6a57b0fe3d4bc69b0e787da1a64d16f4f795f30"
-    sha256 cellar: :any,                 arm64_linux:   "c623603e5754106ea798b52a3d49f05565179f34df722ab49b5416b5b8faade0"
-    sha256 cellar: :any,                 x86_64_linux:  "d16fd80aef3e76e20f3d22e25fc6f3ad97efe3b9e9740909e116c10bb0867bdd"
+    root_url "https://github.com/alkca/clisage/releases/download/v0.3.5"
+    sha256 cellar: :any_skip_relocation, arm64_sequoia: "0bcde214831e06c603bf0f5c2bb6016e359e3761b2bd6a87304fbb419e21860a"
+    sha256 cellar: :any,                 arm64_linux:   "67b485ba39fbdbbff1fd351d94e97eea4ab1736a814438aac4081f29bc185b04"
+    sha256 cellar: :any,                 x86_64_linux:  "7ef7f7dab7b2370f6bc31e399fde0dccc6a593f03db2fa0387df223f8a2bb8b5"
   end
 
   depends_on "rust" => :build
