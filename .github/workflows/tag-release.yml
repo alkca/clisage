@@ -84,7 +84,7 @@ jobs:
         with:
           version: '0.13.5'
           enable-cache: false
-      - name: Prepare reviewed formula PR from the latest published bottles
+      - name: Prepare automatic formula publication from the latest published bottles
         env:
           GH_TOKEN: ${{ github.token }}
         run: uv run --no-project --offline python scripts/bottle_release.py sync

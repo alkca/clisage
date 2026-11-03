@@ -276,8 +276,9 @@ On Debian/Ubuntu, install `zsh pass gnupg dbus gnome-keyring` before running the
 The tooling suite uses `uv run --no-project --offline python -m unittest discover
 -s tests/tooling -v` and requires the repository-pinned release-plz binary on PATH.
 Profiles remain follow-up work. Distribution preparation is described below;
-SemVer tagging, GitHub Releases, bottle publication, and formula PR creation are
-automatic after main CI. PR review and merging remain manual.
+SemVer tagging, GitHub Releases, bottle publication, and verified formula updates
+are automatic after main CI. Code and behavioral formula PRs still require review
+and an authorized merge.
 
 License: MIT OR Apache-2.0.
 
@@ -314,7 +315,7 @@ tested commit. No timestamps or per-machine counters enter the version.
 Every push and PR runs Rust tests, formatting, and Clippy on Linux and macOS.
 Credential lifecycle tests generate a disposable GPG encryption key and use a
 fake API credential; they never access your keyring or call OpenAI. Homebrew CI
-also runs for every change and builds the exact checked-out commit, including
+also runs for every behavioral change and builds the exact checked-out commit, including
 PR merge commits, rather than downloading a moving development branch. It checks
 the installed revision before package smoke tests and formula linting.
 
@@ -356,10 +357,10 @@ release a later commit ahead of an unvalidated earlier one. Existing tags are
 immutable; retries are idempotent, and conflicting tags, ambiguous versions,
 or gaps in the release history fail closed. The workflow creates lightweight
 Git tags, builds and tests Homebrew bottles, publishes them as GitHub Release
-assets, and prepares stable Homebrew formula update PRs. It never rewrites main,
+assets, and publishes stable Homebrew formula metadata through protected PRs. It never rewrites main,
 moves tags, or publishes crates. Default token permissions remain read-only.
 Bottle build jobs receive provenance-signing permissions but no contents-write
-access; separate trusted main jobs publish releases and prepare formula PRs.
+access; separate trusted main jobs publish releases and verify formula updates.
 They never execute PR-run code or download PR-run artifacts with write tokens.
 
 After tagging, the workflow builds and tests bottles for Apple Silicon macOS
@@ -369,23 +370,35 @@ publishes the release only when the complete set is present. Published assets
 are never overwritten. This starts with the merge installing automatic bottle
 publication; earlier tags are not retroactively published.
 
-The workflow then opens a `chore(homebrew): update clisage to vX.Y.Z`
-PR with the immutable tag, full source revision, formula version, and bottle
-download URLs and platform checksums from the latest published release. It explicitly
-dispatches CI and Homebrew checks because GitHub suppresses events from its own
-token. Normal review, required checks, and merging still apply. Stable upgrades
-become available when that formula PR merges; a tag alone does not update the tap.
-Linux and macOS CI always test the exact PR HEAD. Formula changes additionally
-install and test the stable release, verifying that formulas with bottles were
-actually installed from a bottle; manual Homebrew dispatches on main also do so.
-Unrelated changes avoid rebuilding the previous release.
-Stable checks reject a downgrade relative to main, including an obsolete update PR.
-Closed update PRs are left closed; reopen them to retry. Interrupted runs retry
-without force-pushing or changing existing branch content. Failed release builds
-leave the formula unchanged. The next reconciliation retries unpublished tags;
-the **Tag SemVer releases** workflow can also be manually dispatched on main.
-Incomplete drafts stay unpublished, and conflicting existing assets fail closed
-rather than replacing previously uploaded bytes.
+The workflow then opens a generated `chore(homebrew): update clisage to vX.Y.Z`
+metadata PR and dispatches its required checks, because GitHub suppresses events
+from its own token. This is an automatic publication step: no second manual PR
+merge or repeated Rust/Homebrew build is needed. A verifier requires an exact
+match with the latest published bottle manifest and asset digests, the immutable
+ancestor release tag, and successful required main checks for that source.
+Only source/version/bottle metadata may differ from the existing formula.
+The six required jobs report successful metadata verification and reuse the
+source checks and per-platform bottle pour tests already performed for the release.
+A failed verifier fails the required jobs; it cannot silently skip validation.
+
+A separate workflow executes only trusted main code, inspects formula branch
+contents as data, revalidates the release metadata, and squash-merges the bot's
+unchanged PR through normal branch protections once all required checks pass.
+It never approves a PR or bypasses protections. Changed heads, failed checks,
+behavioral changes, or conflicting metadata cannot be automatically merged.
+Review feedback, including Copilot comments, holds publication for manual disposition.
+Stable `brew update` and `brew upgrade clisage` pick up the formula after this
+publication step. Lightweight workflow runs may still appear for metadata updates;
+they do not rebuild the release. A GITHUB_TOKEN merge does not trigger another
+main-push build cycle.
+
+All code and behavioral formula PRs retain full Linux/macOS Rust, quality, and
+checkout-pinned Homebrew builds. Formula behavior changes additionally install
+and test the stable release. Failed release builds leave the formula unchanged.
+Closed update PRs remain closed; conflicting branches require manual review.
+The next reconciliation retries unpublished tags; the **Tag SemVer releases**
+workflow can also be manually dispatched on main. Incomplete drafts stay
+unpublished, and conflicting assets are never overwritten.
 
 Formula synchronization commits are exempt from release tagging to prevent a
 release/update loop. The exemption requires the generated title, only a stable
@@ -467,8 +480,8 @@ The publication job accepts only the complete artifacts from that trusted run.
 Bottles and provenance are permanently hosted as assets of the corresponding
 GitHub Release; Actions artifacts remain available for 14 days for debugging.
 
-The generated formula PR still requires manual review and merge approval.
-After it merges, normal stable `brew upgrade` installs use a compatible bottle
+Verified generated formula metadata is published automatically through a protected
+squash merge. Normal stable `brew upgrade` installs then use a compatible bottle
 instead of compiling Rust. Intel Macs and HEAD installs continue to build from
 source. Intel macOS is excluded from automatic bottles because Homebrew stopped
 publishing its dependency bottles in September 2026; a missing Intel dependency

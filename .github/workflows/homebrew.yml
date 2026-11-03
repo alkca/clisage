@@ -6,16 +6,15 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  install:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      metadata: ${{ steps.verify.outputs.metadata }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,27 +24,65 @@ jobs:
         with:
           version: '0.13.5'
           enable-cache: false
+      - name: Verify whether this is published bottle metadata only
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          metadata=$(uv run --no-project --offline python scripts/formula_publication.py classify)
+          echo "metadata=$metadata" >> "$GITHUB_OUTPUT"
+  install:
+    needs: classify
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Require successful metadata verification
+        env:
+          CLASSIFICATION_RESULT: ${{ needs.classify.result }}
+        run: test "$CLASSIFICATION_RESULT" = success
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.classify.outputs.metadata != 'true'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
+        if: needs.classify.outputs.metadata != 'true'
+        with:
+          version: '0.13.5'
+          enable-cache: false
       - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04
+        if: needs.classify.outputs.metadata != 'true'
         with:
           stable: true
       - name: Pin the CI formula to this exact checkout
+        if: needs.classify.outputs.metadata != 'true'
         run: |
           brew tap clisage/ci "$GITHUB_WORKSPACE"
           uv run --no-project --offline python scripts/prepare_homebrew_ci.py \
             "$GITHUB_WORKSPACE" "$(brew --repository clisage/ci)" "$GITHUB_SHA"
       - name: Build and install the tested revision
+        if: needs.classify.outputs.metadata != 'true'
         run: brew install --HEAD --yes clisage/ci/clisage
       - name: Verify installed revision
+        if: needs.classify.outputs.metadata != 'true'
         run: |
           expected=$(git rev-parse --short HEAD)
           read -r _ installed < <(brew list --versions clisage/ci/clisage)
           [[ "$installed" == "HEAD-$expected" ]]
           bash scripts/check-build-version.sh "$GITHUB_SHA" "$(clisage --version)"
       - name: Run credential-free package tests
+        if: needs.classify.outputs.metadata != 'true'
         run: brew test --HEAD clisage/ci/clisage
       - name: Check formula style
+        if: needs.classify.outputs.metadata != 'true'
         run: brew style "$GITHUB_WORKSPACE/Formula/clisage.rb" "$(brew --repository clisage/ci)/Formula/clisage.rb"
       - name: Check whether the stable formula changed
+        if: needs.classify.outputs.metadata != 'true'
         id: stable
         env:
           STABLE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -53,7 +90,7 @@ jobs:
           needed=$(uv run --no-project --offline python scripts/check_stable_formula.py --needs-build "$STABLE_BASE")
           echo "needed=$needed" >> "$GITHUB_OUTPUT"
       - name: Build and test the stable SemVer source
-        if: steps.stable.outputs.needed == 'true'
+        if: needs.classify.outputs.metadata != 'true' && steps.stable.outputs.needed == 'true'
         run: |
           brew uninstall clisage/ci/clisage
           brew install --yes clisage/ci/clisage
@@ -61,3 +98,6 @@ jobs:
           uv run --no-project --offline python scripts/check_stable_formula.py \
             "$(brew list --versions clisage/ci/clisage)" "$(clisage --version)" "$RUNNER_TEMP/clisage-receipt.json"
           brew test clisage/ci/clisage
+      - name: Reuse the verified release bottle tests
+        if: needs.classify.outputs.metadata == 'true'
+        run: echo 'Verified metadata only; source checks and bottle pour tests already passed for this release.'

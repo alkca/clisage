@@ -1,4 +1,4 @@
-"""Publish validated bottles to GitHub Releases, then prepare a reviewed formula PR."""
+"""Publish validated bottles to GitHub Releases, then prepare verified formula publication."""
 import argparse
 import hashlib
 import json
@@ -174,8 +174,7 @@ def publish(root, directory, github, tag):
     github.api(f'releases/{release["id"]}', method='PATCH', fields={'draft': False})
 
 
-def sync(root, github):
-    from homebrew_release import publish as formula_pr
+def published_manifest(github):
     candidates = [item for item in releases(github)
                   if not item['draft'] and not item['prerelease']
                   and re.fullmatch(r'v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', item['tag_name'])]
@@ -194,7 +193,14 @@ def sync(root, github):
     remote = {asset['name']: asset.get('digest') for asset in release.get('assets', [])}
     if any(remote.get(item['filename']) != 'sha256:' + item['sha256'] for item in manifest['bottles'].values()):
         raise ValueError('published bottle assets differ from manifest')
-    formula_pr(root, github, manifest=manifest)
+    return manifest
+
+
+def sync(root, github):
+    from homebrew_release import publish as formula_pr
+    manifest = published_manifest(github)
+    if manifest is not None:
+        formula_pr(root, github, manifest=manifest)
 
 
 if __name__ == '__main__':
