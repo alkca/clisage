@@ -85,7 +85,9 @@ def merge(root, github, branch, sha):
     # Do not discard review feedback, including automatically submitted Copilot findings.
     for route in (f'pulls/{pr["number"]}/comments', f'pulls/{pr["number"]}/reviews',
                   f'issues/{pr["number"]}/comments'):
-        if any(item.get('body', '').strip() for page in github.api(route + '?per_page=100', pages=True)
+        if any((item.get('body') or '').strip()
+               or item.get('state') in {'CHANGES_REQUESTED', 'COMMENTED', 'PENDING'}
+               for page in github.api(route + '?per_page=100', pages=True)
                for item in page):
             print('Formula review feedback requires manual disposition before merging.')
             return

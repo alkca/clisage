@@ -133,6 +133,16 @@ class ProtectedMerge(unittest.TestCase):
         self.merge()
         self.assertEqual(self.github.api.call_count, 3)
 
+    def test_empty_review_bodies_still_hold_changes_requested_comments_and_pending_reviews(self):
+        for state in ('CHANGES_REQUESTED', 'COMMENTED', 'PENDING'):
+            for body in ('', None):
+                with self.subTest(state=state, body=body):
+                    self.github.reset_mock()
+                    self.github.api.side_effect = [[self.pr], [{'check_runs': self.checks}], [[]],
+                                                   [[dict(body=body, state=state)]]]
+                    self.merge()
+                    self.assertEqual(self.github.api.call_count, 4)
+
     def test_changed_head_untrusted_author_and_behavior_are_never_merged(self):
         for field, value in [('user', {'login': 'fixture-user'}),
                              ('head', {'sha': 'c' * 40, 'repo': {'full_name': 'alkca/clisage'}})]:
