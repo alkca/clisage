@@ -1,4 +1,4 @@
-"""Synchronize the stable Homebrew source through reviewed, CI-tested PRs."""
+"""Synchronize stable Homebrew through protected, verified metadata PRs."""
 import argparse
 import base64
 import os
@@ -162,12 +162,13 @@ def publish(root, github, manifest=None):
                                    'base': 'main', 'body': f'Update the stable Homebrew source to {tag} at `{sha}`.\n\n'
                                    'Generated from an immutable, CI-validated release tag. '
                                    + ('Includes tested bottles published to GitHub Releases. ' if manifest else '')
-                                   + 'Normal review and required '
-                                   'checks apply; this workflow does not approve or merge this PR.'})
+                                   + 'Required checks verify the formula against published release metadata. '
+                                   'A trusted main workflow automatically squash-merges this metadata-only update '
+                                   'through normal branch protections; it does not approve the PR.'})
     # GITHUB_TOKEN-created PR events do not trigger checks automatically.
     for workflow in ('ci.yml', 'homebrew.yml'):
         github.api(f'actions/workflows/{workflow}/dispatches', fields={'ref': branch})
-    print(f'Homebrew update PR prepared for {tag}; merge it after review and CI.')
+    print(f'Homebrew metadata PR prepared for {tag}; verified updates merge automatically after required checks.')
     return tag
 
 

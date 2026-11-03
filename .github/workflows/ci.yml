@@ -7,25 +7,56 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      metadata: ${{ steps.verify.outputs.metadata }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
+        with:
+          version: '0.13.5'
+          enable-cache: false
+      - name: Verify whether this is published bottle metadata only
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          metadata=$(uv run --no-project --offline python scripts/formula_publication.py classify)
+          echo "metadata=$metadata" >> "$GITHUB_OUTPUT"
   check:
+    needs: classify
+    if: always()
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Require successful metadata verification
+        env:
+          CLASSIFICATION_RESULT: ${{ needs.classify.result }}
+        run: test "$CLASSIFICATION_RESULT" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.classify.outputs.metadata != 'true'
         with:
           fetch-depth: 0
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        if: needs.classify.outputs.metadata != 'true'
         with:
           components: rustfmt, clippy
       - name: Install real credential and shell test dependencies
+        if: needs.classify.outputs.metadata != 'true'
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == Linux ]]; then
@@ -35,37 +66,65 @@ jobs:
             brew install --yes pass
           fi
       - run: cargo fmt --check
+        if: needs.classify.outputs.metadata != 'true'
       - run: cargo test --locked
+        if: needs.classify.outputs.metadata != 'true'
       - run: cargo clippy --all-targets --locked -- -D warnings
+        if: needs.classify.outputs.metadata != 'true'
+      - name: Reuse the verified release bottle tests
+        if: needs.classify.outputs.metadata == 'true'
+        run: echo 'Verified metadata only; source checks and bottle pour tests already passed for this release.'
+
   quality:
+    needs: classify
+    if: always()
     name: Quality
     runs-on: ubuntu-latest
     steps:
+      - name: Require successful metadata verification
+        env:
+          CLASSIFICATION_RESULT: ${{ needs.classify.result }}
+        run: test "$CLASSIFICATION_RESULT" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.classify.outputs.metadata != 'true'
         with:
           fetch-depth: 0
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        if: needs.classify.outputs.metadata != 'true'
       - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
+        if: needs.classify.outputs.metadata != 'true'
         with:
           version: '0.13.5'
           enable-cache: false
       - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04
+        if: needs.classify.outputs.metadata != 'true'
         with:
           stable: true
       - name: Install static analysis tools
+        if: needs.classify.outputs.metadata != 'true'
         run: brew install --yes actionlint shellcheck gitleaks cargo-audit
       - uses: ./.github/actions/setup-release-plz
+        if: needs.classify.outputs.metadata != 'true'
       - name: Scan complete Git history for secrets
+        if: needs.classify.outputs.metadata != 'true'
         run: gitleaks git --redact --no-banner .
       - name: Audit locked dependencies
+        if: needs.classify.outputs.metadata != 'true'
         run: cargo audit --deny warnings
       - name: Lint GitHub workflows
+        if: needs.classify.outputs.metadata != 'true'
         run: actionlint
       - name: Lint Bash integration and scripts
+        if: needs.classify.outputs.metadata != 'true'
         run: shellcheck -s bash shell/clisage.bash scripts/*.sh
       - name: Verify CI helper behavior and release planning
+        if: needs.classify.outputs.metadata != 'true'
         run: uv run --no-project --offline python -m unittest discover -s tests/tooling -v
+      - name: Reuse the verified release bottle tests
+        if: needs.classify.outputs.metadata == 'true'
+        run: echo 'Verified metadata only; source checks and bottle pour tests already passed for this release.'
+
   pr-title:
     name: PR title
     runs-on: ubuntu-latest

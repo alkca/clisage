@@ -1,0 +1,40 @@
+name: Merge verified Homebrew metadata
+on:
+  workflow_run:
+    workflows: [CI, Homebrew]
+    types: [completed]
+    branches: ['homebrew-v*']
+permissions:
+  contents: read
+concurrency:
+  group: formula-publication
+  cancel-in-progress: false
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+      actions: read
+    steps:
+      # Use only trusted main code. Formula branch contents are inspected as data.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@56618cab7a58e3efc9b282dd3de75bbf1075db9b
+        with:
+          version: '0.13.5'
+          enable-cache: false
+      - name: Verify published metadata and merge through normal branch protections
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORMULA_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          FORMULA_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: uv run --no-project --offline python scripts/formula_publication.py merge

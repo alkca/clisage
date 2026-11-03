@@ -22,7 +22,9 @@ does not apply in the PR workflow summary.
 
 CI and release policy:
 - Use Conventional Commit PR titles; squash merges preserve the semantic title.
-- Keep Homebrew tests pinned to the checkout SHA and enabled on every PR.
+- Keep Homebrew tests pinned to the checkout SHA and enabled on every behavioral
+  PR. Only verified, generated stable-source/bottle-metadata updates may reuse
+  their release's successful source checks and bottle pour tests.
 - Run `uv run --no-project --offline python -m unittest discover -s tests/tooling -v`
   with release-plz available, plus actionlint, ShellCheck, and cargo audit.
 - Tag every main PR squash commit after its own required main-push CI and
@@ -31,8 +33,12 @@ CI and release policy:
   bootstrap version; features bump minor, breaking changes bump major (minor
   during 0.x), and other PRs bump patch. Never move or overwrite existing tags.
 - After validated tags, automatically build and test bottles, publish GitHub
-  Releases with bottle assets and provenance, and open reviewed formula PRs.
-  Formula PR merging remains manual; never auto-approve or auto-merge them.
+  Releases with bottle assets and provenance, and automatically publish verified
+  formula metadata through protected PRs. These generated metadata-only PRs
+  automatically squash-merge after all required checks pass; never auto-approve
+  them or bypass branch protections. Verify the immutable ancestor release,
+  successful main checks, published bottle digests, and exact generated formula.
+  Behavioral formula changes still require normal review and full validation.
   Exempt only generated, stable-source/bottle-metadata-only synchronization commits from
   tagging to prevent a release loop; behavioral formula changes still receive tags.
 - Keep release-plz draft planning manual. Automatic GitHub Releases and Homebrew
