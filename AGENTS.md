@@ -38,7 +38,10 @@ CI and release policy:
   automatically squash-merge after all required checks pass; never auto-approve
   them or bypass branch protections. Verify the immutable ancestor release,
   successful main checks, published bottle digests, and exact generated formula.
-  Behavioral formula changes still require normal review and full validation.
+  Authorizing execution of that exact PR's unchanged read-only CI/Homebrew
+  workflows is permitted only after metadata verification; never approve a PR
+  review or authorize unrelated workflow runs. Behavioral formula changes still
+  require normal review and full validation.
   Exempt only generated, stable-source/bottle-metadata-only synchronization commits from
   tagging to prevent a release loop; behavioral formula changes still receive tags.
 - Keep release-plz draft planning manual. Automatic GitHub Releases and Homebrew
