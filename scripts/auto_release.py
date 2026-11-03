@@ -153,9 +153,11 @@ class GitHub:
         args = ['gh', 'api', f'repos/{self.repository}/{route}']
         if pages:
             args += ['--paginate', '--slurp']
-        if fields:
+        if fields is not None:
             args += ['--method', method or 'POST', '--input', '-']
-        result = subprocess.run(args, input=json.dumps(fields) if fields else None,
+        elif method is not None:
+            args += ['--method', method]
+        result = subprocess.run(args, input=json.dumps(fields) if fields is not None else None,
                                 text=True, capture_output=True, timeout=120)
         if result.returncode:
             # API errors may contain provider details; never echo raw bodies.

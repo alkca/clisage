@@ -16,12 +16,16 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
-      pull-requests: write
-      checks: read
-      actions: write
     steps:
+      - name: Require publication App configuration
+        env:
+          APP_CLIENT_ID: ${{ vars.FORMULA_APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.FORMULA_APP_PRIVATE_KEY }}
+        run: |
+          if [[ -z "$APP_CLIENT_ID" || -z "$APP_PRIVATE_KEY" ]]; then
+            echo 'Configure FORMULA_APP_CLIENT_ID and FORMULA_APP_PRIVATE_KEY and install the publication App on this repository.' >&2
+            exit 1
+          fi
       # Use only trusted main code. Formula branch contents are inspected as data.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -32,8 +36,20 @@ jobs:
         with:
           version: '0.13.5'
           enable-cache: false
+      - name: Create repository-scoped publication token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.FORMULA_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FORMULA_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: write
+          permission-contents: write
+          permission-pull-requests: write
+          permission-checks: read
       - name: Verify published metadata and merge through normal branch protections
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           FORMULA_BRANCH: ${{ inputs.branch }}
         run: uv run --no-project --offline python scripts/formula_publication.py publish

@@ -85,6 +85,19 @@ class WorkflowPolicy(unittest.TestCase):
         self.assertIn('scripts/formula_publication.py publish', workflow)
         self.assertIn('persist-credentials: false', workflow)
 
+    def test_publication_uses_scoped_short_lived_app_token_without_using_default_token(self):
+        workflow = (ROOT / '.github/workflows/formula-merge.yml').read_text()
+        self.assertIn('vars.FORMULA_APP_CLIENT_ID', workflow)
+        self.assertIn('secrets.FORMULA_APP_PRIVATE_KEY', workflow)
+        self.assertIn('Require publication App configuration', workflow)
+        self.assertIn('actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510', workflow)
+        self.assertIn('repositories: ${{ github.event.repository.name }}', workflow)
+        for permission in ('actions: write', 'contents: write', 'pull-requests: write', 'checks: read'):
+            self.assertIn('permission-' + permission, workflow)
+        self.assertIn('GH_TOKEN: ${{ steps.app-token.outputs.token }}', workflow)
+        self.assertNotIn('skip-token-revoke:', workflow)
+        self.assertNotIn('GH_TOKEN: ${{ github.token }}', workflow)
+
 
 class ProtectedMerge(unittest.TestCase):
     def setUp(self):

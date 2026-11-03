@@ -259,6 +259,19 @@ class GitHubAdapter(unittest.TestCase):
             self.assertEqual(json.loads(call.call_args.kwargs['input']), fields)
             self.assertEqual(call.call_args.args[0][-4:], ['--method', 'POST', '--input', '-'])
 
+    def test_explicit_methods_without_body_and_empty_json_objects_are_preserved(self):
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        module = load()
+        client = module.GitHub('fixture/repo')
+        with patch.object(module.subprocess, 'run', return_value=CompletedProcess([], 0, '{}', '')) as call:
+            client.api('actions/runs/42/approve', method='POST')
+            self.assertEqual(call.call_args.args[0][-2:], ['--method', 'POST'])
+            self.assertIsNone(call.call_args.kwargs['input'])
+            client.api('fixture', method='PATCH', fields={})
+            self.assertEqual(call.call_args.args[0][-4:], ['--method', 'PATCH', '--input', '-'])
+            self.assertEqual(call.call_args.kwargs['input'], '{}')
+
     def test_creation_retries_accept_only_an_existing_identical_target(self):
         module = load()
         class Conflict(module.GitHub):
