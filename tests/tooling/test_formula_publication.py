@@ -96,6 +96,8 @@ class WorkflowPolicy(unittest.TestCase):
             self.assertIn('permission-' + permission, workflow)
         self.assertIn('GH_TOKEN: ${{ steps.app-token.outputs.token }}', workflow)
         self.assertNotIn('skip-token-revoke:', workflow)
+        self.assertNotIn('APP_PRIVATE_KEY:', workflow)
+        self.assertIn('APP_CONFIGURED:', workflow)
         self.assertNotIn('GH_TOKEN: ${{ github.token }}', workflow)
 
 
