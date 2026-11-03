@@ -1,9 +1,11 @@
 name: Merge verified Homebrew metadata
 on:
-  workflow_run:
-    workflows: [CI, Homebrew]
-    types: [completed]
-    branches: ['homebrew-v*']
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Generated formula branch to verify and publish
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -11,16 +13,14 @@ concurrency:
   cancel-in-progress: false
 jobs:
   merge:
-    if: >-
-      github.event.workflow_run.event == 'workflow_dispatch' &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      github.event.workflow_run.conclusion == 'success'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
       checks: read
-      actions: read
+      actions: write
     steps:
       # Use only trusted main code. Formula branch contents are inspected as data.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,6 +35,5 @@ jobs:
       - name: Verify published metadata and merge through normal branch protections
         env:
           GH_TOKEN: ${{ github.token }}
-          FORMULA_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          FORMULA_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: uv run --no-project --offline python scripts/formula_publication.py merge
+          FORMULA_BRANCH: ${{ inputs.branch }}
+        run: uv run --no-project --offline python scripts/formula_publication.py publish

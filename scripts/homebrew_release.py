@@ -165,9 +165,15 @@ def publish(root, github, manifest=None):
                                    + 'Required checks verify the formula against published release metadata. '
                                    'A trusted main workflow automatically squash-merges this metadata-only update '
                                    'through normal branch protections; it does not approve the PR.'})
-    # GITHUB_TOKEN-created PR events do not trigger checks automatically.
-    for workflow in ('ci.yml', 'homebrew.yml'):
-        github.api(f'actions/workflows/{workflow}/dispatches', fields={'ref': branch})
+    if manifest is not None:
+        # Dispatch is guaranteed to run even with GITHUB_TOKEN. The trusted publisher
+        # verifies this PR before authorizing its approval-required verification jobs.
+        github.api('actions/workflows/formula-merge.yml/dispatches',
+                   fields={'ref': 'main', 'inputs': {'branch': branch}})
+    else:
+        # Legacy source-only planning remains manual and does not authorize PR runs.
+        for workflow in ('ci.yml', 'homebrew.yml'):
+            github.api(f'actions/workflows/{workflow}/dispatches', fields={'ref': branch})
     print(f'Homebrew metadata PR prepared for {tag}; verified updates merge automatically after required checks.')
     return tag
 

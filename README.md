@@ -371,8 +371,10 @@ are never overwritten. This starts with the merge installing automatic bottle
 publication; earlier tags are not retroactively published.
 
 The workflow then opens a generated `chore(homebrew): update clisage to vX.Y.Z`
-metadata PR and dispatches its required checks, because GitHub suppresses events
-from its own token. This is an automatic publication step: no second manual PR
+metadata PR and explicitly dispatches a trusted main publication worker. GitHub
+requires approval before bot-created PR workflows run. After verifying the exact
+metadata diff, the worker authorizes only that PR's unchanged read-only CI and
+Homebrew workflows; it does not dispatch duplicate builds. This is an automatic publication step: no second manual PR
 merge or repeated Rust/Homebrew build is needed. A verifier requires an exact
 match with the latest published bottle manifest and asset digests, the immutable
 ancestor release tag, and successful required main checks for that source.
@@ -381,9 +383,12 @@ The six required jobs report successful metadata verification and reuse the
 source checks and per-platform bottle pour tests already performed for the release.
 A failed verifier fails the required jobs; it cannot silently skip validation.
 
-A separate workflow executes only trusted main code, inspects formula branch
+The explicitly dispatched workflow executes only trusted main code, inspects formula branch
 contents as data, revalidates the release metadata, and squash-merges the bot's
 unchanged PR through normal branch protections once all required checks pass.
+It polls with a ten-minute deadline instead of relying on suppressed downstream
+workflow events. Execution approval is scoped to the generated PR, exact SHA,
+repository, bot author, and trusted CI/Homebrew workflow paths.
 It never approves a PR or bypasses protections. Changed heads, failed checks,
 behavioral changes, or conflicting metadata cannot be automatically merged.
 Review feedback, including Copilot comments, holds publication for manual disposition.

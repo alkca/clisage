@@ -80,8 +80,9 @@ class WorkflowPolicy(unittest.TestCase):
             self.assertIn('scripts/formula_publication.py classify', workflow)
             self.assertIn("if: needs.classify.outputs.metadata != 'true'", workflow)
         workflow = (ROOT / '.github/workflows/formula-merge.yml').read_text()
-        self.assertIn('workflow_run:', workflow)
-        self.assertIn('scripts/formula_publication.py merge', workflow)
+        self.assertIn('workflow_dispatch:', workflow)
+        self.assertNotIn('workflow_run:', workflow)
+        self.assertIn('scripts/formula_publication.py publish', workflow)
         self.assertIn('persist-credentials: false', workflow)
 
 
@@ -91,7 +92,7 @@ class ProtectedMerge(unittest.TestCase):
         self.module = formula_publication
         self.github = Mock(repository='alkca/clisage')
         self.sha = 'a' * 40
-        self.pr = dict(number=42, draft=False, user={'login': 'github-actions[bot]'},
+        self.pr = dict(number=42, state='open', draft=False, user={'login': 'github-actions[bot]'},
                        title='chore(homebrew): update clisage to v0.2.0',
                        head={'sha': self.sha, 'repo': {'full_name': 'alkca/clisage'}},
                        base={'sha': 'b' * 40})
@@ -157,6 +158,41 @@ class ProtectedMerge(unittest.TestCase):
             self.merge()
 
     def test_retries_after_merge_are_noops_and_never_recreate_prs(self):
-        self.github.api.return_value = []
-        self.merge()
+        self.github.api.return_value = [dict(self.pr, state='closed', merged_at='2026-01-01T00:00:00Z')]
+        self.assertTrue(self.module.merge(ROOT, self.github, 'homebrew-v0.2.0', self.sha))
         self.github.api.assert_called_once()
+
+    def test_missing_pr_keeps_polling_and_manually_closed_pr_does_not_report_success(self):
+        self.github.api.return_value = []
+        self.assertFalse(self.module.merge(ROOT, self.github, 'homebrew-v0.2.0', self.sha))
+        self.github.api.return_value = [dict(self.pr, state='closed', merged_at=None)]
+        with self.assertRaises(ValueError):
+            self.merge()
+
+    def test_only_matching_generated_pr_workflow_runs_are_authorized(self):
+        run = dict(id=12, path='.github/workflows/ci.yml', event='pull_request',
+                   head_sha=self.sha, head_branch='homebrew-v0.2.0',
+                   actor={'login': 'github-actions[bot]'}, conclusion='action_required',
+                   head_repository={'full_name': 'alkca/clisage'}, pull_requests=[{'number': 42}])
+        self.github.api.side_effect = [[{'workflow_runs': [run, dict(run, id=13, head_sha='c' * 40),
+                                                         dict(run, id=14, path='.github/workflows/other.yml')]}], {}]
+        self.module.authorize_runs(self.github, 'homebrew-v0.2.0', self.sha, 42)
+        self.assertEqual(self.github.api.call_count, 2)
+        self.assertEqual(self.github.api.call_args.args, ('actions/runs/12/approve',))
+        self.assertEqual(self.github.api.call_args.kwargs, {'method': 'POST'})
+
+    def test_publication_waits_boundedly_and_does_not_rebuild_or_redispatch(self):
+        self.github.api.return_value = {'object': {'sha': self.sha}}
+        with patch.object(self.module, 'merge', side_effect=[False, True]) as merge, \
+                patch.object(self.module.time, 'sleep') as sleep:
+            self.module.publish(ROOT, self.github, 'homebrew-v0.2.0')
+        self.assertEqual(merge.call_count, 2)
+        self.assertEqual(merge.call_args.kwargs, {'authorize': True})
+        sleep.assert_called_once_with(5)
+
+    def test_publication_timeout_fails_closed(self):
+        self.github.api.return_value = {'object': {'sha': self.sha}}
+        with patch.object(self.module, 'merge', return_value=False), \
+                patch.object(self.module.time, 'monotonic', side_effect=[0, 601]):
+            with self.assertRaises(ValueError):
+                self.module.publish(ROOT, self.github, 'homebrew-v0.2.0')

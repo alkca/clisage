@@ -81,6 +81,22 @@ class HomebrewRelease(unittest.TestCase):
         self.assertEqual(github.api.call_count, 3)
         self.assertFalse(any('git/' in call.args[0] for call in github.api.call_args_list))
 
+    def test_bottle_updates_dispatch_one_trusted_main_publisher_instead_of_duplicate_checks(self):
+        from bottle_release import PLATFORMS, release_url
+        manifest = dict(schema=1, tag='v0.2.3', sha=self.sha,
+                        root_url=release_url('alkca/clisage', 'v0.2.3'), bottles={
+                            platform: dict(cellar='any_skip_relocation', sha256='b' * 64,
+                                           filename=f'clisage-0.2.3.{platform}.bottle.tar.gz')
+                            for platform in PLATFORMS})
+        github = Mock(repository='alkca/clisage')
+        github.tags.return_value = {'v0.2.3': self.sha}
+        github.api.side_effect = [[{'number': 42, 'state': 'open'}], {}]
+        self.module.publish(self.root, github, manifest=manifest)
+        self.assertEqual(github.api.call_count, 2)
+        self.assertEqual(github.api.call_args.args, ('actions/workflows/formula-merge.yml/dispatches',))
+        self.assertEqual(github.api.call_args.kwargs['fields'],
+                         {'ref': 'main', 'inputs': {'branch': 'homebrew-v0.2.3'}})
+
     def test_homebrew_ci_keeps_exact_head_and_checks_stable_on_both_platforms(self):
         workflow = (ROOT / '.github/workflows/homebrew.yml').read_text()
         self.assertIn('os: [ubuntu-latest, macos-latest]', workflow)
